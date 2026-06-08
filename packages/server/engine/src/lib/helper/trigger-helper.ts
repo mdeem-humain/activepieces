@@ -7,12 +7,12 @@ import { FlowExecutorContext } from '../handler/context/flow-execution-context'
 import { createFileUploader } from '../piece-context/file-uploader'
 import { createFlowsContext } from '../piece-context/flows'
 import { createContextStore } from '../piece-context/store'
+import type { PieceInvocationContext, PieceInvocationPhase } from '../plugins/engine-plugin'
 import { runWithPieceInvocationMiddleware } from '../plugins/piece-invocation-middleware'
 import { utils } from '../utils'
 import { propsProcessor } from '../variables/props-processor'
 import { createPropsResolver } from '../variables/props-resolver'
 import { pieceLoader } from './piece-loader'
-import type { PieceInvocationContext, PieceInvocationPhase } from '../plugins/engine-plugin'
 
 type Listener = {
     events: string[]

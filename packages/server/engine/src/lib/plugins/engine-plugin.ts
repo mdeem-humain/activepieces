@@ -45,13 +45,13 @@ type PieceInvocationMiddleware = {
     before?: <TInput>(context: PieceInvocationContext & {
         input?: TInput
         canReplaceInput: boolean
-    }) => Promise<PieceInvocationBeforeResult<TInput> | void>
+    }) => Promise<PieceInvocationBeforeResult<TInput> | undefined>
     after?: (context: PieceInvocationContext & {
         canReplaceOutput: boolean
         durationMs: number
         output?: unknown
         error?: unknown
-    }) => Promise<PieceInvocationAfterResult<unknown> | void>
+    }) => Promise<PieceInvocationAfterResult<unknown> | undefined>
 }
 
 type EnginePlugin = {

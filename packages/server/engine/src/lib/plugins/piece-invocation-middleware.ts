@@ -1,4 +1,3 @@
-import { enginePlugins } from './engine-plugins'
 import type {
     PieceInvocationAfterResult,
     PieceInvocationBeforeResult,
@@ -7,6 +6,7 @@ import type {
     PieceInvocationPhase,
     PieceNameMatcher,
 } from './engine-plugin'
+import { enginePlugins } from './engine-plugins'
 
 async function runWithPieceInvocationMiddleware<T>({
     context,

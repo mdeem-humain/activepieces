@@ -16,11 +16,11 @@ import { AppConnectionType, AppConnectionValue, EngineGenericError, ExecuteExtra
 import { EngineConstants } from '../handler/context/engine-constants'
 import { testExecutionContext } from '../handler/context/test-execution-context'
 import { createFlowsContext } from '../piece-context/flows'
+import type { PieceInvocationContext } from '../plugins/engine-plugin'
 import { runWithPieceInvocationMiddleware } from '../plugins/piece-invocation-middleware'
 import { utils } from '../utils'
 import { createPropsResolver } from '../variables/props-resolver'
 import { pieceLoader } from './piece-loader'
-import type { PieceInvocationContext } from '../plugins/engine-plugin'
 
 export const pieceHelper = {
     async executeProps( operation: ExecutePropsParams): Promise<ExecutePropsResult<PropertyType.DROPDOWN | PropertyType.MULTI_SELECT_DROPDOWN | PropertyType.DYNAMIC>> {
