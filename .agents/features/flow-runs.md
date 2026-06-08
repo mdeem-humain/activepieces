@@ -41,6 +41,7 @@ Flow Runs records every execution of a flow, tracking its full lifecycle from qu
 - **Subflow**: A child run linked via `parentRunId`, created when a flow calls another flow as a step.
 - **failedStep**: JSONB snapshot of `{ name, displayName, message? }` for the step that caused failure. Enables filtered retries, the runs-table error-message search, the failure email's "Reason" line, and the builder's jump-to-failed-step affordance. `message` is truncated via `truncateString` from `@activepieces/shared` before being persisted, and the engine populates `failedStep` for every status in `FAILED_STATES` (FAILED, TIMEOUT, INTERNAL_ERROR, QUOTA_EXCEEDED, MEMORY_LIMIT_EXCEEDED) — not just `FAILED`.
 - **FriendlyPieceError**: Structured error shape (`__apErrorVersion`, `message`, optional `status`, `errorName`, `requestBody`, `responseBody`, `apiMessage`, `raw`) produced by `formatPieceError` in the engine when a piece step throws (replacing the old `util.inspect` dump). The builder parses it with `tryParseFriendlyPieceError` and renders a `FriendlyErrorView` card — plain-language headline, the service's message, a "Copy Error for AI" button, and a "Technical Details" disclosure holding the `raw` dump — in both the test panel and the run-details output view.
+- **PieceInvocationMiddleware**: Engine-local middleware registered in `packages/server/engine/src/lib/plugins/`. Piece action `run` / `test` and trigger `run` / `test` phases can replace the piece context passed into the callback and the callback output returned to the engine. Trigger lifecycle, dynamic properties, auth validation, and metadata extraction phases are observe-only.
 
 ## Entity
 
@@ -108,6 +109,10 @@ On every terminal run, `flow-run-hooks.ts#onFinish` calls `aiUsageTracker(log).t
 6. If any usage exists, emits `BillingEvents.AI_USAGE_PER_RUN` to PostHog (distinctId = license key) with per-`(provider, model)` breakdown, `messages`, `toolCalls`, edition, ids, status, and `environment`.
 
 A separate scheduled EE job (`ee/flow-run-tracking/`, `SystemJobName.FLOW_RUN_TRACKING`) emits `BillingEvents.TOTAL_RUNS_PER_DAY` per licensed platform once a day.
+
+## Piece Invocation Middleware
+
+The engine routes piece-authored callbacks through `runWithPieceInvocationMiddleware()`. Middleware matches by canonical piece package name, with exact string, `RegExp`, predicate, or no matcher for global coverage. `before` hooks run before the piece callback in registration order; `after` hooks run in reverse registration order with either output or error and duration. Piece errors remain errors after middleware observation.
 
 ## Frontend Integration
 

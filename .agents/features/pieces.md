@@ -17,6 +17,7 @@ The pieces feature manages the metadata catalog of automation integrations (call
 - `packages/web/src/features/pieces/hooks/use-piece-output-schema.ts` — reads `outputSchema` for a given step (PIECE action or trigger) off the cached piece model; shares the existing `['piece', name, version]` React Query cache so no extra network call is made
 - `packages/web/src/features/pieces/components/` — `PieceIcon`, `PieceIconList`, `PieceSelectorSearch`, `InstallPieceDialog`
 - `packages/pieces/framework/src/lib/output-schema.ts` — `OutputSchema` / `OutputSchemaField` / `FieldFormat` plain TypeScript types (embedded into the piece metadata via `z.custom`)
+- `packages/server/engine/src/lib/plugins/` — engine-local in-memory plugin registry and piece invocation middleware runner
 
 ## Edition Availability
 All editions. Piece filtering by allowed/blocked list and EE-specific filtering are gated in `enterpriseFilteringUtils` but the base listing and installation is Community-level.
@@ -29,6 +30,7 @@ All editions. Piece filtering by allowed/blocked list and EE-specific filtering 
 - **PieceCategory** — enum grouping pieces (AI, CORE, COMMUNICATION, etc.)
 - **SuggestionType** — AGENT or ACTION; changes ordering in piece selector
 - **OutputSchema** — optional, per-action / per-trigger structured description of how the step's output should be rendered. Shape: `{ fields: OutputSchemaField[], itemLabel?: string }`. Each `OutputSchemaField` carries `key`, optional `label` / `value` (path override) / `description`, an optional `format` (`email` / `url` / `date` / `datetime` / `number` / `boolean` / `image` / `html` / `currency` / `filesize` / `duration`), optional `currency` ISO code, optional `dynamicKey: true` for map-shaped values, optional `labelKey` (property within each map entry / list item to use as its display label — falls back to the raw key / `Item N`), and optional recursive `children` / `listItems` for nested objects and array-of-record shapes. `itemLabel` is a `{dotPath}` template (e.g. `{key}: {fields.summary}`) used when the step returns a top-level array; it labels each element in both the Smart Output Viewer and the Data Selector. Set by the piece author as the `outputSchema` of `createAction` / `createTrigger`. Consumed by the builder's `SmartOutputViewer` and the data selector — see [flows.md](./flows.md). Opt-in and non-breaking: pieces without an output schema render exactly as before.
+- **PieceInvocationMiddleware** — engine-local middleware registered through `enginePlugins`. It matches canonical piece package names by exact string, `RegExp`, predicate, or no matcher for global coverage. It wraps action `run` / `test`, trigger lifecycle/test/run hooks, dynamic property callbacks, auth validation, and metadata extraction.
 
 ## Entity
 
@@ -88,3 +90,9 @@ Unique index on `(name, version, platformId)`.
 
 ### `pieceSyncService`
 - `sync({ publishCacheRefresh })` — reads bundled piece registry file, upserts official piece metadata records, optionally publishes cache refresh event
+
+## Engine Middleware Coverage
+
+Piece-authored callbacks are invoked through `runWithPieceInvocationMiddleware()` in the engine. `action.run`, `action.test`, `trigger.run`, and `trigger.test` can receive replacement input and output returned by middleware. `trigger.onStart`, `trigger.onEnable`, `trigger.onDisable`, `trigger.onRenew`, `trigger.onHandshake`, `property.props`, `property.options`, `auth.validate`, and `metadata.extract` are observe-only phases.
+
+Middleware must return replacement objects instead of mutating existing piece contexts or outputs in place. `before` hooks run in registration order; `after` hooks run in reverse registration order and observe either output or error.
