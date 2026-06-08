@@ -16,9 +16,11 @@ import { AppConnectionType, AppConnectionValue, EngineGenericError, ExecuteExtra
 import { EngineConstants } from '../handler/context/engine-constants'
 import { testExecutionContext } from '../handler/context/test-execution-context'
 import { createFlowsContext } from '../piece-context/flows'
+import { runWithPieceInvocationMiddleware } from '../plugins/piece-invocation-middleware'
 import { utils } from '../utils'
 import { createPropsResolver } from '../variables/props-resolver'
 import { pieceLoader } from './piece-loader'
+import type { PieceInvocationContext } from '../plugins/engine-plugin'
 
 export const pieceHelper = {
     async executeProps( operation: ExecutePropsParams): Promise<ExecutePropsResult<PropertyType.DROPDOWN | PropertyType.MULTI_SELECT_DROPDOWN | PropertyType.DYNAMIC>> {
@@ -76,7 +78,17 @@ export const pieceHelper = {
             switch (property.type) {
                 case PropertyType.DYNAMIC: {
                     const dynamicProperty = property as DynamicProperties<boolean>
-                    const props = await dynamicProperty.props(resolvedInput, ctx)
+                    const props = await runWithPieceInvocationMiddleware({
+                        context: createPropertyInvocationContext({
+                            operation,
+                            phase: 'property.props',
+                            platformId: constants.platformId,
+                        }),
+                        input: {
+                            resolvedInput,
+                        },
+                        invoke: async () => dynamicProperty.props(resolvedInput, ctx),
+                    })
                     return {
                         type: PropertyType.DYNAMIC,
                         options: props,
@@ -87,7 +99,17 @@ export const pieceHelper = {
                     unknown,
                     boolean
                     >
-                    const options = await multiSelectProperty.options(resolvedInput, ctx)
+                    const options = await runWithPieceInvocationMiddleware({
+                        context: createPropertyInvocationContext({
+                            operation,
+                            phase: 'property.options',
+                            platformId: constants.platformId,
+                        }),
+                        input: {
+                            resolvedInput,
+                        },
+                        invoke: async () => multiSelectProperty.options(resolvedInput, ctx),
+                    })
                     return {
                         type: PropertyType.MULTI_SELECT_DROPDOWN,
                         options,
@@ -95,7 +117,17 @@ export const pieceHelper = {
                 }
                 case PropertyType.DROPDOWN: {
                     const dropdownProperty = property as DropdownProperty<unknown, boolean>
-                    const options = await dropdownProperty.options(resolvedInput, ctx)
+                    const options = await runWithPieceInvocationMiddleware({
+                        context: createPropertyInvocationContext({
+                            operation,
+                            phase: 'property.options',
+                            platformId: constants.platformId,
+                        }),
+                        input: {
+                            resolvedInput,
+                        },
+                        invoke: async () => dropdownProperty.options(resolvedInput, ctx),
+                    })
                     return {
                         type: PropertyType.DROPDOWN,
                         options,
@@ -136,6 +168,12 @@ export const pieceHelper = {
             authValue: params.auth,
             pieceAuth: piece.auth,
             server,
+            context: {
+                pieceName: piecePackage.pieceName,
+                pieceVersion: piecePackage.pieceVersion,
+                phase: 'auth.validate',
+                platformId: params.platformId,
+            },
         })
 
     },
@@ -147,7 +185,15 @@ export const pieceHelper = {
         const pieceIndexPath = await pieceLoader.getPiecePath({ packageName: pieceAlias, devPieces })
         const pieceDistRoot = path.dirname(path.dirname(pieceIndexPath))
         const i18n = await pieceTranslation.initializeI18n(pieceDistRoot)
-        const fullMetadata = piece.metadata()
+        const fullMetadata = await runWithPieceInvocationMiddleware({
+            context: {
+                pieceName,
+                pieceVersion,
+                phase: 'metadata.extract',
+                platformId: params.platformId,
+            },
+            invoke: async () => piece.metadata(),
+        })
         return {
             ...fullMetadata,
             name: pieceName,
@@ -160,6 +206,23 @@ export const pieceHelper = {
 
 type ExecutePropsParams = Omit<ExecutePropsOptions, 'piece'> & { pieceName: string, pieceVersion: string }
 
+function createPropertyInvocationContext({
+    operation,
+    phase,
+    platformId,
+}: CreatePropertyInvocationContextParams): PieceInvocationContext {
+    return {
+        pieceName: operation.pieceName,
+        pieceVersion: operation.pieceVersion,
+        phase,
+        projectId: operation.projectId,
+        platformId,
+        flowId: operation.flowVersion?.flowId,
+        flowVersionId: operation.flowVersion?.id,
+        stepName: operation.actionOrTriggerName,
+        actionOrTriggerName: operation.actionOrTriggerName,
+    }
+}
 
 function mismatchAuthTypeErrorMessage(pieceAuthType: PropertyType, connectionType: AppConnectionType): ExecuteValidateAuthResponse {
     return {
@@ -172,6 +235,7 @@ const validateAuth = async ({
     server,
     authValue,
     pieceAuth,
+    context,
 }: ValidateAuthParams): Promise<ExecuteValidateAuthResponse> => {
     if (isNil(pieceAuth)) {
         return {
@@ -201,36 +265,60 @@ const validateAuth = async ({
             if (authValue.type !== AppConnectionType.OAUTH2 && authValue.type !== AppConnectionType.CLOUD_OAUTH2 && authValue.type !== AppConnectionType.PLATFORM_OAUTH2) {
                 return mismatchAuthTypeErrorMessage(usedPieceAuth.type, authValue.type)
             }
-            return usedPieceAuth.validate({
-                auth: authValue,
-                server,
+            return runWithPieceInvocationMiddleware({
+                context,
+                input: {
+                    auth: authValue,
+                },
+                invoke: async () => usedPieceAuth.validate({
+                    auth: authValue,
+                    server,
+                }),
             })
         }
         case PropertyType.BASIC_AUTH:{
             if (authValue.type !== AppConnectionType.BASIC_AUTH) {
                 return mismatchAuthTypeErrorMessage(usedPieceAuth.type, authValue.type)
             }
-            return usedPieceAuth.validate({
-                auth: authValue,
-                server,
+            return runWithPieceInvocationMiddleware({
+                context,
+                input: {
+                    auth: authValue,
+                },
+                invoke: async () => usedPieceAuth.validate({
+                    auth: authValue,
+                    server,
+                }),
             })
         }
         case PropertyType.SECRET_TEXT:{
             if (authValue.type !== AppConnectionType.SECRET_TEXT) {
                 return mismatchAuthTypeErrorMessage(usedPieceAuth.type, authValue.type)
             }
-            return usedPieceAuth.validate({
-                auth: authValue.secret_text,
-                server,
+            return runWithPieceInvocationMiddleware({
+                context,
+                input: {
+                    auth: authValue.secret_text,
+                },
+                invoke: async () => usedPieceAuth.validate({
+                    auth: authValue.secret_text,
+                    server,
+                }),
             })
         }
         case PropertyType.CUSTOM_AUTH:{
             if (authValue.type !== AppConnectionType.CUSTOM_AUTH) {
                 return mismatchAuthTypeErrorMessage(usedPieceAuth.type, authValue.type)
             }
-            return usedPieceAuth.validate({
-                auth: authValue.props,
-                server,
+            return runWithPieceInvocationMiddleware({
+                context,
+                input: {
+                    auth: authValue.props,
+                },
+                invoke: async () => usedPieceAuth.validate({
+                    auth: authValue.props,
+                    server,
+                }),
             })
         }
         case PropertyType.OIDC:{
@@ -255,4 +343,11 @@ type ValidateAuthParams = {
     }
     authValue: AppConnectionValue
     pieceAuth: PieceAuthProperty | PieceAuthProperty[] | undefined
+    context: PieceInvocationContext
+}
+
+type CreatePropertyInvocationContextParams = {
+    operation: ExecutePropsParams
+    phase: 'property.options' | 'property.props'
+    platformId: string
 }
