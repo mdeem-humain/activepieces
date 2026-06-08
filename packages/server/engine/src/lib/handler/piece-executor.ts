@@ -11,6 +11,7 @@ import { createFileUploader } from '../piece-context/file-uploader'
 import { createFlowsContext } from '../piece-context/flows'
 import { createContextStore } from '../piece-context/store'
 import { waitpointClient } from '../piece-context/waitpoint-client'
+import { runWithPieceInvocationMiddleware } from '../plugins/piece-invocation-middleware'
 import { agentTools } from '../tools'
 import { HookResponse, utils } from '../utils'
 import { propsProcessor } from '../variables/props-processor'
@@ -153,7 +154,27 @@ const executeAction: ActionHandler<PieceAction> = async ({ action, executionStat
         })
         const testSingleStepMode = !isNil(constants.stepNameToTest)
         const runMethodToExecute = (testSingleStepMode && !isNil(pieceAction.test)) ? pieceAction.test : pieceAction.run
-        const output = await runMethodToExecute(backwardCompatibleContext)
+        const output = await runWithPieceInvocationMiddleware({
+            context: {
+                pieceName: action.settings.pieceName,
+                pieceVersion: action.settings.pieceVersion,
+                phase: testSingleStepMode && !isNil(pieceAction.test) ? 'action.test' : 'action.run',
+                projectId: constants.projectId,
+                platformId: constants.platformId,
+                flowId: constants.flowId,
+                flowVersionId: constants.flowVersionId,
+                flowRunId: constants.flowRunId,
+                stepName: action.name,
+                actionOrTriggerName: action.settings.actionName,
+            },
+            input: backwardCompatibleContext,
+            invoke: async (input) => {
+                if (!isActionContext(input)) {
+                    throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece action middleware returned an invalid action context')
+                }
+                return runMethodToExecute(input)
+            },
+        })
         const newExecutionContext = executionState.addTags(params.hookResponse.tags)
 
         const webhookResponse = getResponse(params.hookResponse)
@@ -226,6 +247,14 @@ function getResponse(hookResponse: HookResponse): RespondResponse | undefined {
         case 'none':
             return undefined
     }
+}
+
+function isActionContext(input: unknown): input is ActionContext<PieceAuthProperty, InputPropertyMap> {
+    return typeof input === 'object'
+        && input !== null
+        && 'propsValue' in input
+        && 'run' in input
+        && 'project' in input
 }
 
 const createTagsManager = (hkParams: createTagsManagerParams): TagsManager => {
