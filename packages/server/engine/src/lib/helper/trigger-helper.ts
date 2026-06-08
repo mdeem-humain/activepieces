@@ -1,5 +1,5 @@
 import { assertEqual, isNil } from '@activepieces/core-utils'
-import { PiecePropertyMap, StaticPropsValue, TriggerStrategy } from '@activepieces/pieces-framework'
+import { OnStartContext, PiecePropertyMap, StaticPropsValue, TestOrRunHookContext, TriggerHookContext, TriggerStrategy } from '@activepieces/pieces-framework'
 import { AUTHENTICATION_PROPERTY_NAME, EngineGenericError, EventPayload, ExecuteTriggerResponse, FlowTrigger, InvalidCronExpressionError, PieceTrigger, PropertySettings, ScheduleOptions, TriggerHookType, TriggerSourceScheduleType } from '@activepieces/shared'
 import { isValidCron } from 'cron-validator'
 import { EngineConstants, ResolvedExecuteTriggerOperation } from '../handler/context/engine-constants'
@@ -7,10 +7,12 @@ import { FlowExecutorContext } from '../handler/context/flow-execution-context'
 import { createFileUploader } from '../piece-context/file-uploader'
 import { createFlowsContext } from '../piece-context/flows'
 import { createContextStore } from '../piece-context/store'
+import { runWithPieceInvocationMiddleware } from '../plugins/piece-invocation-middleware'
 import { utils } from '../utils'
 import { propsProcessor } from '../variables/props-processor'
 import { createPropsResolver } from '../variables/props-resolver'
 import { pieceLoader } from './piece-loader'
+import type { PieceInvocationContext, PieceInvocationPhase } from '../plugins/engine-plugin'
 
 type Listener = {
     events: string[]
@@ -70,7 +72,27 @@ export const triggerHelper = {
                 contextVersion: piece.getContextInfo?.().version,
             }),
         }
-        await pieceTrigger.onStart(context)
+        await runWithPieceInvocationMiddleware({
+            context: createPieceInvocationContext({
+                pieceName,
+                pieceVersion,
+                phase: 'trigger.onStart',
+                projectId: constants.projectId,
+                platformId: constants.platformId,
+                flowId: constants.flowId,
+                flowVersionId: constants.flowVersionId,
+                flowRunId: constants.flowRunId,
+                stepName: trigger.name,
+                actionOrTriggerName: triggerName,
+            }),
+            input: context,
+            invoke: async (input) => {
+                if (!isOnStartContext(input)) {
+                    throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid onStart context')
+                }
+                return pieceTrigger.onStart(input)
+            },
+        })
     },
 
     async executeTrigger({ params, constants }: ExecuteTriggerParams): Promise<ExecuteTriggerResponse<TriggerHookType>> {
@@ -150,11 +172,43 @@ export const triggerHelper = {
         }
         switch (params.hookType) {
             case TriggerHookType.ON_DISABLE: {
-                await pieceTrigger.onDisable(context)
+                await runWithPieceInvocationMiddleware({
+                    context: createPieceInvocationContextFromExecuteTrigger({
+                        params,
+                        constants,
+                        pieceName,
+                        pieceVersion,
+                        triggerName,
+                        phase: 'trigger.onDisable',
+                    }),
+                    input: context,
+                    invoke: async (input) => {
+                        if (!isTriggerHookContext(input)) {
+                            throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid onDisable context')
+                        }
+                        return pieceTrigger.onDisable(input)
+                    },
+                })
                 return {}
             }
             case TriggerHookType.ON_ENABLE: {
-                await pieceTrigger.onEnable(context)
+                await runWithPieceInvocationMiddleware({
+                    context: createPieceInvocationContextFromExecuteTrigger({
+                        params,
+                        constants,
+                        pieceName,
+                        pieceVersion,
+                        triggerName,
+                        phase: 'trigger.onEnable',
+                    }),
+                    input: context,
+                    invoke: async (input) => {
+                        if (!isTriggerHookContext(input)) {
+                            throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid onEnable context')
+                        }
+                        return pieceTrigger.onEnable(input)
+                    },
+                })
                 return {
                     listeners: appListeners,
                     scheduleOptions: pieceTrigger.type === TriggerStrategy.POLLING ? scheduleOptions : undefined,
@@ -162,11 +216,43 @@ export const triggerHelper = {
             }
             case TriggerHookType.RENEW: {
                 assertEqual(pieceTrigger.type, TriggerStrategy.WEBHOOK, 'triggerType', 'WEBHOOK')
-                await pieceTrigger.onRenew(context)
+                await runWithPieceInvocationMiddleware({
+                    context: createPieceInvocationContextFromExecuteTrigger({
+                        params,
+                        constants,
+                        pieceName,
+                        pieceVersion,
+                        triggerName,
+                        phase: 'trigger.onRenew',
+                    }),
+                    input: context,
+                    invoke: async (input) => {
+                        if (!isTriggerHookContext(input)) {
+                            throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid onRenew context')
+                        }
+                        return pieceTrigger.onRenew(input)
+                    },
+                })
                 return {}
             }
             case TriggerHookType.HANDSHAKE: {
-                const { data: handshakeResponse, error: handshakeResponseError } = await utils.tryCatchAndThrowOnEngineError(() => pieceTrigger.onHandshake(context))
+                const { data: handshakeResponse, error: handshakeResponseError } = await utils.tryCatchAndThrowOnEngineError(() => runWithPieceInvocationMiddleware({
+                    context: createPieceInvocationContextFromExecuteTrigger({
+                        params,
+                        constants,
+                        pieceName,
+                        pieceVersion,
+                        triggerName,
+                        phase: 'trigger.onHandshake',
+                    }),
+                    input: context,
+                    invoke: async (input) => {
+                        if (!isTriggerHookContext(input)) {
+                            throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid onHandshake context')
+                        }
+                        return pieceTrigger.onHandshake(input)
+                    },
+                }))
 
                 if (handshakeResponseError) {
                     throw handshakeResponseError
@@ -176,12 +262,29 @@ export const triggerHelper = {
                 }
             }
             case TriggerHookType.TEST: {
-                const { data: testResponse, error: testResponseError } = await utils.tryCatchAndThrowOnEngineError(() => pieceTrigger.test({
+                const testContext = {
                     ...context,
                     files: createFileUploader({
                         apiUrl: constants.internalApiUrl,
                         engineToken: params.engineToken!,
                     }),
+                }
+                const { data: testResponse, error: testResponseError } = await utils.tryCatchAndThrowOnEngineError(() => runWithPieceInvocationMiddleware({
+                    context: createPieceInvocationContextFromExecuteTrigger({
+                        params,
+                        constants,
+                        pieceName,
+                        pieceVersion,
+                        triggerName,
+                        phase: 'trigger.test',
+                    }),
+                    input: testContext,
+                    invoke: async (input) => {
+                        if (!isTestOrRunHookContext(input)) {
+                            throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid test context')
+                        }
+                        return pieceTrigger.test(input)
+                    },
                 }))
 
                 if (testResponseError) {
@@ -218,12 +321,29 @@ export const triggerHelper = {
                 }
 
                 const { data: triggerRunResult, error: triggerRunError } = await utils.tryCatchAndThrowOnEngineError(async () => {
-                    const items = await pieceTrigger.run({
+                    const runContext = {
                         ...context,
                         files: createFileUploader({
                             apiUrl: constants.internalApiUrl,
                             engineToken: params.engineToken!,
                         }),
+                    }
+                    const items = await runWithPieceInvocationMiddleware({
+                        context: createPieceInvocationContextFromExecuteTrigger({
+                            params,
+                            constants,
+                            pieceName,
+                            pieceVersion,
+                            triggerName,
+                            phase: 'trigger.run',
+                        }),
+                        input: runContext,
+                        invoke: async (input) => {
+                            if (!isTestOrRunHookContext(input)) {
+                                throw new EngineGenericError('InvalidPieceInvocationInputError', 'Piece trigger middleware returned an invalid run context')
+                            }
+                            return pieceTrigger.run(input)
+                        },
                     })
                     return {
                         output: items,
@@ -272,6 +392,53 @@ async function prepareTriggerExecution({ pieceName, pieceVersion, triggerName, i
     return { piece, pieceTrigger, processedInput }
 }
 
+function createPieceInvocationContextFromExecuteTrigger({
+    params,
+    constants,
+    pieceName,
+    pieceVersion,
+    triggerName,
+    phase,
+}: CreatePieceInvocationContextFromExecuteTriggerParams): PieceInvocationContext {
+    return createPieceInvocationContext({
+        pieceName,
+        pieceVersion,
+        phase,
+        projectId: params.projectId,
+        platformId: params.platformId,
+        flowId: params.flowVersion.flowId,
+        flowVersionId: params.flowVersion.id,
+        flowRunId: constants.flowRunId,
+        stepName: params.flowVersion.trigger.name,
+        actionOrTriggerName: triggerName,
+    })
+}
+
+function createPieceInvocationContext(params: PieceInvocationContext): PieceInvocationContext {
+    return params
+}
+
+function isOnStartContext(input: unknown): input is OnStartContext<unknown, PiecePropertyMap> {
+    return typeof input === 'object'
+        && input !== null
+        && 'propsValue' in input
+        && 'payload' in input
+}
+
+function isTriggerHookContext(input: unknown): input is TriggerHookContext<unknown, PiecePropertyMap, TriggerStrategy> {
+    return typeof input === 'object'
+        && input !== null
+        && 'propsValue' in input
+        && 'store' in input
+}
+
+function isTestOrRunHookContext(input: unknown): input is TestOrRunHookContext<unknown, PiecePropertyMap, TriggerStrategy> {
+    return typeof input === 'object'
+        && input !== null
+        && 'propsValue' in input
+        && 'files' in input
+}
+
 type PrepareTriggerExecutionParams = {
     pieceName: string
     pieceVersion: string
@@ -283,4 +450,13 @@ type PrepareTriggerExecutionParams = {
     engineToken: string
     devPieces: string[]
     stepNames: string[]
+}
+
+type CreatePieceInvocationContextFromExecuteTriggerParams = {
+    params: ResolvedExecuteTriggerOperation<TriggerHookType>
+    constants: EngineConstants
+    pieceName: string
+    pieceVersion: string
+    triggerName: string
+    phase: PieceInvocationPhase
 }
