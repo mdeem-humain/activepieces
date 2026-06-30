@@ -88,6 +88,11 @@ export type SandboxPoolSettings = {
     EXECUTION_MODE: string
     DEV_PIECES: string[]
     ENVIRONMENT: string
+    ENGINE_PLUGINS: string
+    ENGINE_PLUGIN_HOOK_TIMEOUT_MS: number
+    ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: number
+    APP_VERSION?: string
+    EDITION: string
     REUSE_SANDBOX: string | undefined
     FLOW_TIMEOUT_SECONDS: number
     MAX_FILE_SIZE_MB: number

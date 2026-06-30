@@ -6,8 +6,8 @@ import { sandboxCapacity } from './sandbox/capacity'
 import { simpleProcess } from './sandbox/fork'
 import { isolateProcess } from './sandbox/isolate'
 import { createSandbox } from './sandbox/sandbox'
-import { Sandbox, SandboxMount } from './sandbox/types'
-import { SandboxPoolSettings } from './types'
+import type { Sandbox, SandboxMount, SandboxProcessMaker } from './sandbox/types'
+import type { SandboxPoolSettings } from './types'
 
 export function createSandboxForJob(params: {
     log: ApLogger
@@ -22,13 +22,16 @@ export function createSandboxForJob(params: {
     const paths = cacheUtils(basePath)
 
     const memoryLimitMb = parseMemoryLimit(settings.SANDBOX_MEMORY_LIMIT)
-    const processMaker = getProcessMaker(settings.EXECUTION_MODE, log, boxId, paths)
+    const processMaker = getProcessMaker({
+        executionMode: settings.EXECUTION_MODE,
+        log,
+        boxId,
+        paths,
+    })
 
     const baseMounts: SandboxMount[] = [
         { hostPath: paths.getGlobalCacheCommonPath(), sandboxPath: '/root/common' },
     ]
-
-    const executionMode = settings.EXECUTION_MODE as ExecutionMode
 
     return createSandbox(
         log,
@@ -42,17 +45,22 @@ export function createSandboxForJob(params: {
             maxHttpBufferSizeBytes: maxSocketHttpBufferSizeBytes(settings.MAX_FILE_SIZE_MB),
             basePath,
             baseMounts,
-            wsRpcPort: isIsolateMode(executionMode) ? sandboxCapacity.wsRpcPortForBox(boxId) : undefined,
+            wsRpcPort: isIsolateMode(settings.EXECUTION_MODE) ? sandboxCapacity.wsRpcPortForBox(boxId) : undefined,
         },
         processMaker,
     )
 }
 
-export function isIsolateMode(mode: ExecutionMode): boolean {
+export function isIsolateMode(mode: string): boolean {
     return mode === ExecutionMode.SANDBOX_PROCESS || mode === ExecutionMode.SANDBOX_CODE_AND_PROCESS
 }
 
-function getProcessMaker(executionMode: string, log: ApLogger, boxId: number, paths: ReturnType<typeof cacheUtils>) {
+function getProcessMaker({ executionMode, log, boxId, paths }: {
+    executionMode: string
+    log: ApLogger
+    boxId: number
+    paths: ReturnType<typeof cacheUtils>
+}): SandboxProcessMaker {
     switch (executionMode) {
         case ExecutionMode.SANDBOX_PROCESS:
         case ExecutionMode.SANDBOX_CODE_AND_PROCESS:
@@ -79,6 +87,7 @@ function buildSandboxEnv({ settings }: {
     const networkMode = settings.NETWORK_MODE
     return {
         ...baseEnv({ settings, networkMode }),
+        ...enginePluginEnv(settings),
         ...ssrfEnv(settings),
         ...propagatedEnv(settings),
     }
@@ -92,6 +101,17 @@ function baseEnv({ settings, networkMode }: { settings: SandboxPoolSettings, net
         AP_MAX_FILE_SIZE_MB: String(settings.MAX_FILE_SIZE_MB),
         NODE_PATH: '/usr/src/node_modules',
         AP_NETWORK_MODE: networkMode,
+        AP_ENVIRONMENT: settings.ENVIRONMENT,
+        AP_EDITION: settings.EDITION,
+    }
+}
+
+function enginePluginEnv(settings: SandboxPoolSettings): Record<string, string> {
+    return {
+        AP_ENGINE_PLUGINS: settings.ENGINE_PLUGINS,
+        AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS: String(settings.ENGINE_PLUGIN_HOOK_TIMEOUT_MS),
+        AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: String(settings.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS),
+        ...(settings.APP_VERSION === undefined ? {} : { AP_ACTIVEPIECES_VERSION: settings.APP_VERSION }),
     }
 }
 
@@ -109,9 +129,22 @@ function ssrfEnv(settings: SandboxPoolSettings): Record<string, string> {
 function propagatedEnv(settings: SandboxPoolSettings): Record<string, string> {
     const env: Record<string, string> = {}
     for (const key of settings.SANDBOX_PROPAGATED_ENV_VARS) {
-        if (process.env[key]) {
-            env[key] = process.env[key]!
+        if (TYPED_SANDBOX_ENV_KEYS.has(key)) {
+            continue
+        }
+        const value = process.env[key]
+        if (value) {
+            env[key] = value
         }
     }
     return env
 }
+
+const TYPED_SANDBOX_ENV_KEYS = new Set([
+    'AP_ENGINE_PLUGINS',
+    'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS',
+    'AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS',
+    'AP_ENVIRONMENT',
+    'AP_ACTIVEPIECES_VERSION',
+    'AP_EDITION',
+])

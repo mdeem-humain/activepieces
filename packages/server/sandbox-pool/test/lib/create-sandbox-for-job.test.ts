@@ -42,6 +42,10 @@ type Settings = {
     LOG_LEVEL: string
     LOG_PRETTY: string
     ENVIRONMENT: string
+    ENGINE_PLUGINS: string
+    ENGINE_PLUGIN_HOOK_TIMEOUT_MS: number
+    ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: number
+    APP_VERSION?: string
     APP_WEBHOOK_SECRETS: string
     MAX_FLOW_RUN_LOG_SIZE_MB: number
     MAX_FILE_SIZE_MB: number
@@ -69,6 +73,10 @@ function buildSettings(overrides: Partial<Settings> = {}): Settings {
         LOG_LEVEL: 'info',
         LOG_PRETTY: 'false',
         ENVIRONMENT: ApEnvironment.PRODUCTION,
+        ENGINE_PLUGINS: '[]',
+        ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 5000,
+        ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 30000,
+        APP_VERSION: '0.1.0',
         APP_WEBHOOK_SECRETS: '{}',
         MAX_FLOW_RUN_LOG_SIZE_MB: 10,
         MAX_FILE_SIZE_MB: 10,
@@ -85,6 +93,12 @@ function buildSettings(overrides: Partial<Settings> = {}): Settings {
         REUSE_SANDBOX: undefined,
     }
     return { ...base, ...overrides }
+}
+
+function buildSettingsWithoutAppVersion(overrides: Partial<Omit<Settings, 'APP_VERSION'>> = {}): Settings {
+    const settings = buildSettings(overrides)
+    delete settings.APP_VERSION
+    return settings
 }
 
 const log = { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() } as never
@@ -163,8 +177,94 @@ describe('createSandboxForJob', () => {
                 AP_MAX_FILE_SIZE_MB: '50',
                 NODE_PATH: '/usr/src/node_modules',
                 AP_NETWORK_MODE: NetworkMode.STRICT,
+                AP_ENVIRONMENT: ApEnvironment.PRODUCTION,
+                AP_ACTIVEPIECES_VERSION: '0.1.0',
+                AP_EDITION: 'community',
             })
             expect('AP_EGRESS_PROXY_URL' in env).toBe(false)
+        })
+
+        it('emits engine plugin config from typed settings', () => {
+            const enginePlugins = JSON.stringify([
+                { packageName: '@acme/engine-plugin', enabled: true },
+            ])
+            const settings = buildSettings({
+                ENGINE_PLUGINS: enginePlugins,
+                ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 7000,
+                ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 35000,
+            })
+            createSandboxForJob({ log, boxId: 1, reusable: false, basePath: '/tmp', getSettings: () => settings })
+
+            const env = createSandboxMock.mock.calls[0][2].env
+            expect(env.AP_ENGINE_PLUGINS).toBe(enginePlugins)
+            expect(env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS).toBe('7000')
+            expect(env.AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS).toBe('35000')
+        })
+
+        it('omits AP_ACTIVEPIECES_VERSION when APP_VERSION is absent', () => {
+            const settings = buildSettingsWithoutAppVersion()
+            createSandboxForJob({ log, boxId: 1, reusable: false, basePath: '/tmp', getSettings: () => settings })
+
+            const env = createSandboxMock.mock.calls[0][2].env
+            expect('AP_ACTIVEPIECES_VERSION' in env).toBe(false)
+        })
+
+        it('does not let propagated env vars backfill typed plugin config', () => {
+            const originalProcessEnv = { ...process.env }
+            try {
+                process.env.AP_ENGINE_PLUGINS = '[{"packageName":"from-process"}]'
+                process.env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS = '111'
+                process.env.AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS = '222'
+                process.env.AP_ENVIRONMENT = 'from-process'
+                process.env.AP_ACTIVEPIECES_VERSION = 'from-process'
+                process.env.AP_EDITION = 'from-process'
+                const settings = buildSettingsWithoutAppVersion({
+                    ENGINE_PLUGINS: '',
+                    ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 0,
+                    ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 0,
+                    ENVIRONMENT: '',
+                    EDITION: '',
+                    SANDBOX_PROPAGATED_ENV_VARS: [
+                        'AP_ENGINE_PLUGINS',
+                        'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS',
+                        'AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS',
+                        'AP_ENVIRONMENT',
+                        'AP_ACTIVEPIECES_VERSION',
+                        'AP_EDITION',
+                    ],
+                })
+                createSandboxForJob({ log, boxId: 1, reusable: false, basePath: '/tmp', getSettings: () => settings })
+
+                const env = createSandboxMock.mock.calls[0][2].env
+                expect(env.AP_ENGINE_PLUGINS).toBe('')
+                expect(env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS).toBe('0')
+                expect(env.AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS).toBe('0')
+                expect(env.AP_ENVIRONMENT).toBe('')
+                expect('AP_ACTIVEPIECES_VERSION' in env).toBe(false)
+                expect(env.AP_EDITION).toBe('')
+            }
+            finally {
+                process.env = originalProcessEnv
+            }
+        })
+
+        it('emits isolate-compatible env values as strings', () => {
+            const settings = buildSettings({
+                EXECUTION_MODE: ExecutionMode.SANDBOX_PROCESS,
+                ENGINE_PLUGINS: JSON.stringify([{ packageName: '@acme/engine-plugin' }]),
+                ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 5000,
+                ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 30000,
+                ENVIRONMENT: ApEnvironment.PRODUCTION,
+                APP_VERSION: '0.2.0',
+                EDITION: 'ce',
+            })
+            createSandboxForJob({ log, boxId: 1, reusable: false, basePath: '/tmp', getSettings: () => settings })
+
+            const env = createSandboxMock.mock.calls[0][2].env
+            for (const value of Object.values(env)) {
+                expect(typeof value).toBe('string')
+                expect(value).not.toMatch(/[\n\r\0]/)
+            }
         })
 
         it('omits AP_DEV_PIECES when DEV_PIECES is empty', () => {

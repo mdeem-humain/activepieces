@@ -9,11 +9,11 @@ import {
 } from '@activepieces/shared'
 import type { WorkerToApiContract, WorkerSettingsResponse } from '@activepieces/shared'
 
-const mockWorkerSettingsSet = vi.fn()
+const mockWorkerSettingsSet = vi.fn<(response: WorkerSettingsResponse) => void>()
 
 vi.mock('../../src/lib/config/worker-settings', () => ({
     workerSettings: {
-        set: (...args: unknown[]) => mockWorkerSettingsSet(...args),
+        set: (response: WorkerSettingsResponse) => mockWorkerSettingsSet(response),
         waitForSettings: vi.fn().mockResolvedValue({ PUBLIC_URL: 'http://localhost:3000' }),
         getSettings: vi.fn().mockReturnValue({ PUBLIC_URL: 'http://localhost:3000' }),
     },
@@ -52,6 +52,9 @@ function buildWorkerSettingsResponse(overrides?: Partial<WorkerSettingsResponse>
         LOG_PRETTY: 'false',
         ENVIRONMENT: 'prod',
         APP_WEBHOOK_SECRETS: '{}',
+        ENGINE_PLUGINS: '[]',
+        ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 5000,
+        ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 30000,
         MAX_FLOW_RUN_LOG_SIZE_MB: 10,
         MAX_FILE_SIZE_MB: 10,
         SANDBOX_MEMORY_LIMIT: '1024',
@@ -64,6 +67,7 @@ function buildWorkerSettingsResponse(overrides?: Partial<WorkerSettingsResponse>
         EDITION: 'community',
         NETWORK_MODE: NetworkMode.UNRESTRICTED,
         SSRF_ALLOW_LIST: [],
+        APP_VERSION: '0.1.0',
         ...overrides,
     }
 }
@@ -169,12 +173,20 @@ describe('worker settings override', () => {
         })
     }
 
+    function getStoredSettings(): WorkerSettingsResponse {
+        const settings = mockWorkerSettingsSet.mock.calls[0]?.[0]
+        if (settings === undefined) {
+            throw new Error('Worker settings were not stored')
+        }
+        return settings
+    }
+
     it('no local override, no worker group → server mode used as-is', async () => {
         const serverSettings = buildWorkerSettingsResponse({ EXECUTION_MODE: ExecutionMode.SANDBOX_CODE_AND_PROCESS })
         await connectAndWaitForSettings(serverSettings)
 
         expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
-        const stored = mockWorkerSettingsSet.mock.calls[0][0] as WorkerSettingsResponse
+        const stored = getStoredSettings()
         expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_CODE_AND_PROCESS)
     }, 10_000)
 
@@ -184,8 +196,36 @@ describe('worker settings override', () => {
         await connectAndWaitForSettings(serverSettings)
 
         expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
-        const stored = mockWorkerSettingsSet.mock.calls[0][0] as WorkerSettingsResponse
+        const stored = getStoredSettings()
         expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_CODE_ONLY)
+    }, 10_000)
+
+    it('worker settings round-trip preserves ENGINE_PLUGINS', async () => {
+        const enginePlugins = JSON.stringify([{ packageName: '@acme/engine-plugin' }])
+        const serverSettings = buildWorkerSettingsResponse({ ENGINE_PLUGINS: enginePlugins })
+        await connectAndWaitForSettings(serverSettings)
+
+        expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
+        expect(getStoredSettings().ENGINE_PLUGINS).toBe(enginePlugins)
+    }, 10_000)
+
+    it('local AP_EXECUTION_MODE override preserves plugin settings', async () => {
+        process.env.AP_EXECUTION_MODE = ExecutionMode.SANDBOX_CODE_ONLY
+        const enginePlugins = JSON.stringify([{ packageName: '@acme/engine-plugin' }])
+        const serverSettings = buildWorkerSettingsResponse({
+            EXECUTION_MODE: ExecutionMode.SANDBOX_CODE_AND_PROCESS,
+            ENGINE_PLUGINS: enginePlugins,
+            ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 7000,
+            ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 35000,
+        })
+        await connectAndWaitForSettings(serverSettings)
+
+        expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
+        const stored = getStoredSettings()
+        expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_CODE_ONLY)
+        expect(stored.ENGINE_PLUGINS).toBe(enginePlugins)
+        expect(stored.ENGINE_PLUGIN_HOOK_TIMEOUT_MS).toBe(7000)
+        expect(stored.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS).toBe(35000)
     }, 10_000)
 
     it('worker group + SANDBOX_PROCESS passes validation', async () => {
@@ -196,7 +236,7 @@ describe('worker settings override', () => {
         await connectAndWaitForSettings(serverSettings)
 
         expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
-        const stored = mockWorkerSettingsSet.mock.calls[0][0] as WorkerSettingsResponse
+        const stored = getStoredSettings()
         expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_PROCESS)
     }, 10_000)
 
@@ -208,7 +248,7 @@ describe('worker settings override', () => {
         await connectAndWaitForSettings(serverSettings)
 
         expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
-        const stored = mockWorkerSettingsSet.mock.calls[0][0] as WorkerSettingsResponse
+        const stored = getStoredSettings()
         expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_CODE_AND_PROCESS)
     }, 10_000)
 
@@ -237,7 +277,7 @@ describe('worker settings override', () => {
         await connectAndWaitForSettings(serverSettings)
 
         expect(mockWorkerSettingsSet).toHaveBeenCalledTimes(1)
-        const stored = mockWorkerSettingsSet.mock.calls[0][0] as WorkerSettingsResponse
+        const stored = getStoredSettings()
         expect(stored.EXECUTION_MODE).toBe(ExecutionMode.SANDBOX_PROCESS)
     }, 10_000)
 })
