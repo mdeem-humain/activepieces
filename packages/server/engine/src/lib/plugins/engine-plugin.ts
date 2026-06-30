@@ -1,69 +1,53 @@
-type PieceNameMatcher =
-    | string
-    | RegExp
-    | ((params: { pieceName: string }) => boolean)
+import type {
+    EnginePlugin,
+    EnginePluginApiVersion,
+    EnginePluginEnvironment,
+    EnginePluginFactory,
+    EnginePluginFactoryContext,
+    EnginePluginHealth,
+    EnginePluginLifecycleContext,
+    EnginePluginLogger,
+    EnginePluginPackageConfig,
+    EnginePluginPackageFailurePolicy,
+    HookFailurePolicy,
+    PieceInvocationAfterContext,
+    PieceInvocationAfterResult,
+    PieceInvocationBeforeContext,
+    PieceInvocationBeforeResult,
+    PieceInvocationContext,
+    PieceInvocationMatcher,
+    PieceInvocationMiddleware,
+    PieceInvocationPhase,
+} from '@activepieces/core-execution'
 
-type PieceInvocationPhase =
-    | 'action.run'
-    | 'action.test'
-    | 'trigger.onStart'
-    | 'trigger.onEnable'
-    | 'trigger.onDisable'
-    | 'trigger.onRenew'
-    | 'trigger.onHandshake'
-    | 'trigger.test'
-    | 'trigger.run'
-    | 'property.options'
-    | 'property.props'
-    | 'auth.validate'
-    | 'metadata.extract'
-
-type PieceInvocationContext = {
-    pieceName: string
-    pieceVersion: string
-    phase: PieceInvocationPhase
-    projectId?: string
-    platformId?: string
-    flowId?: string
-    flowVersionId?: string
-    flowRunId?: string
-    stepName?: string
-    actionOrTriggerName?: string
+type EnginePluginMetadata = {
+    name: EnginePlugin['name']
+    version: EnginePlugin['version']
+    apiVersion: EnginePlugin['apiVersion']
+    packageName?: EnginePluginPackageConfig['packageName']
 }
 
-type PieceInvocationBeforeResult<TInput> = {
-    input?: TInput
-}
-
-type PieceInvocationAfterResult<TOutput> = {
-    output?: TOutput
-}
-
-type PieceInvocationMiddleware = {
-    name: string
-    match?: PieceNameMatcher
-    before?: <TInput>(context: PieceInvocationContext & {
-        input?: TInput
-        canReplaceInput: boolean
-    }) => Promise<PieceInvocationBeforeResult<TInput> | undefined>
-    after?: (context: PieceInvocationContext & {
-        canReplaceOutput: boolean
-        durationMs: number
-        output?: unknown
-        error?: unknown
-    }) => Promise<PieceInvocationAfterResult<unknown> | undefined>
-}
-
-type EnginePlugin = {
-    name: string
-    pieceInvocationMiddleware?: PieceInvocationMiddleware[]
-}
+type PieceNameMatcher = PieceInvocationMatcher
 
 export type {
     EnginePlugin,
+    EnginePluginApiVersion,
+    EnginePluginEnvironment,
+    EnginePluginFactory,
+    EnginePluginFactoryContext,
+    EnginePluginHealth,
+    EnginePluginLifecycleContext,
+    EnginePluginLogger,
+    EnginePluginMetadata,
+    EnginePluginPackageConfig,
+    EnginePluginPackageFailurePolicy,
+    HookFailurePolicy,
+    PieceInvocationAfterContext,
     PieceInvocationAfterResult,
+    PieceInvocationBeforeContext,
     PieceInvocationBeforeResult,
     PieceInvocationContext,
+    PieceInvocationMatcher,
     PieceInvocationMiddleware,
     PieceInvocationPhase,
     PieceNameMatcher,

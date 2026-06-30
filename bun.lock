@@ -10882,6 +10882,7 @@
       "name": "@activepieces/engine",
       "version": "0.7.0",
       "dependencies": {
+        "@activepieces/core-execution": "workspace:*",
         "@activepieces/core-formula": "workspace:*",
         "@activepieces/core-utils": "workspace:*",
         "@activepieces/pieces-common": "workspace:*",

@@ -2,10 +2,10 @@ import type {
     PieceInvocationAfterResult,
     PieceInvocationBeforeResult,
     PieceInvocationContext,
+    PieceInvocationMatcher,
     PieceInvocationMiddleware,
     PieceInvocationPhase,
-    PieceNameMatcher,
-} from './engine-plugin'
+} from '@activepieces/core-execution'
 import { enginePlugins } from './engine-plugins'
 
 async function runWithPieceInvocationMiddleware<T>({
@@ -27,6 +27,7 @@ async function runWithPieceInvocationMiddleware<T>({
             ...context,
             input: nextInput,
             canReplaceInput,
+            canReplaceOutput,
         })
         if (canReplaceInput && beforeResult !== undefined && hasInputReplacement(beforeResult)) {
             nextInput = beforeResult.input
@@ -65,9 +66,10 @@ async function runWithPieceInvocationMiddleware<T>({
             output: successOutput?.output,
             error: invocationError,
             durationMs,
+            canReplaceInput,
             canReplaceOutput,
         })
-        if (canReplaceOutput && afterResult !== undefined && hasOutputReplacement(afterResult)) {
+        if (canReplaceOutput && afterResult !== undefined && hasOutputReplacement<T>(afterResult)) {
             successOutput = {
                 output: afterResult.output,
             }
@@ -91,30 +93,65 @@ function getMatchingMiddleware({
 }): PieceInvocationMiddleware[] {
     return enginePlugins
         .getPieceInvocationMiddleware()
-        .filter((middleware) => matchesPieceName({
+        .filter((middleware) => matchesPieceInvocationContext({
+            context,
             match: middleware.match,
-            pieceName: context.pieceName,
         }))
 }
 
-function matchesPieceName({
+function matchesPieceInvocationContext({
+    context,
     match,
-    pieceName,
 }: {
     match?: PieceInvocationMatcher
-    pieceName: string
+    context: PieceInvocationContext
 }): boolean {
     if (match === undefined) {
         return true
     }
     if (typeof match === 'string') {
-        return match === pieceName
+        return match === context.pieceName
     }
     if (match instanceof RegExp) {
         match.lastIndex = 0
-        return match.test(pieceName)
+        return match.test(context.pieceName)
     }
-    return match({ pieceName })
+    if (typeof match === 'function') {
+        return match(context)
+    }
+    if ('pieceName' in match) {
+        return matchesConfiguredPieceName({
+            configuredPieceName: match.pieceName,
+            pieceName: context.pieceName,
+        })
+    }
+    return matchesPieceNamePattern({
+        pieceNamePattern: match.pieceNamePattern,
+        pieceName: context.pieceName,
+    })
+}
+
+function matchesConfiguredPieceName({
+    configuredPieceName,
+    pieceName,
+}: {
+    configuredPieceName: string | string[]
+    pieceName: string
+}): boolean {
+    if (Array.isArray(configuredPieceName)) {
+        return configuredPieceName.includes(pieceName)
+    }
+    return configuredPieceName === pieceName
+}
+
+function matchesPieceNamePattern({
+    pieceNamePattern,
+    pieceName,
+}: {
+    pieceNamePattern: string
+    pieceName: string
+}): boolean {
+    return new RegExp(pieceNamePattern).test(pieceName)
 }
 
 function canReplaceValue({
@@ -129,13 +166,11 @@ function hasInputReplacement<TInput>(result: PieceInvocationBeforeResult<TInput>
     return Object.prototype.hasOwnProperty.call(result, 'input')
 }
 
-function hasOutputReplacement(
+function hasOutputReplacement<TOutput>(
     result: PieceInvocationAfterResult<unknown>,
-): boolean {
+): result is OutputReplacement<TOutput> {
     return Object.prototype.hasOwnProperty.call(result, 'output')
 }
-
-export { runWithPieceInvocationMiddleware }
 
 const REPLACEABLE_PHASES: PieceInvocationPhase[] = [
     'action.run',
@@ -154,8 +189,17 @@ type PieceInvocationResult<T> =
         error: unknown
     }
 
+type PieceNameMatcher = PieceInvocationMatcher
+
+type OutputReplacement<TOutput> = PieceInvocationAfterResult<TOutput> & {
+    output: TOutput
+}
+
+export { runWithPieceInvocationMiddleware }
+
 export type {
     PieceInvocationContext,
+    PieceInvocationMatcher,
     PieceInvocationMiddleware,
     PieceInvocationPhase,
     PieceNameMatcher,

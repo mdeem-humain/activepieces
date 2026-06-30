@@ -10,6 +10,7 @@ import type {
 
 describe('piece invocation middleware', () => {
     beforeEach(() => {
+        pluginId = 0
         enginePlugins.clear()
     })
 
@@ -17,6 +18,7 @@ describe('piece invocation middleware', () => {
         const calls: string[] = []
         enginePlugins.register({
             name: 'global-plugin',
+            apiVersion: '2026-07-01',
             pieceInvocationMiddleware: [
                 {
                     name: 'global-middleware',
@@ -37,6 +39,7 @@ describe('piece invocation middleware', () => {
         const calls: string[] = []
         enginePlugins.register({
             name: 'exact-plugin',
+            apiVersion: '2026-07-01',
             pieceInvocationMiddleware: [
                 {
                     name: 'exact-middleware',
@@ -58,6 +61,7 @@ describe('piece invocation middleware', () => {
         const calls: string[] = []
         enginePlugins.register({
             name: 'regex-plugin',
+            apiVersion: '2026-07-01',
             pieceInvocationMiddleware: [
                 {
                     name: 'regex-middleware',
@@ -80,6 +84,7 @@ describe('piece invocation middleware', () => {
         const calls: string[] = []
         enginePlugins.register({
             name: 'predicate-plugin',
+            apiVersion: '2026-07-01',
             pieceInvocationMiddleware: [
                 {
                     name: 'predicate-middleware',
@@ -108,6 +113,7 @@ describe('piece invocation middleware', () => {
         const calls: string[] = []
         enginePlugins.register({
             name: 'non-match-plugin',
+            apiVersion: '2026-07-01',
             pieceInvocationMiddleware: [
                 {
                     name: 'non-match-middleware',
@@ -337,8 +343,17 @@ function createContext({
 function pluginWithMiddleware(
     middleware: PieceInvocationMiddleware,
 ): EnginePlugin {
+    const middlewareName = middleware.name ?? `middleware-${pluginId}`
+    pluginId += 1
+
     return {
-        name: `${middleware.name}-plugin`,
-        pieceInvocationMiddleware: [middleware],
+        name: `${middlewareName}-plugin`,
+        apiVersion: '2026-07-01',
+        pieceInvocationMiddleware: [{
+            ...middleware,
+            name: middlewareName,
+        }],
     }
 }
+
+let pluginId = 0
