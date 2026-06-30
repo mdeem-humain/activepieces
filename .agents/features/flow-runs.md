@@ -41,7 +41,7 @@ Flow Runs records every execution of a flow, tracking its full lifecycle from qu
 - **Subflow**: A child run linked via `parentRunId`, created when a flow calls another flow as a step.
 - **failedStep**: JSONB snapshot of `{ name, displayName, message? }` for the step that caused failure. Enables filtered retries, the runs-table error-message search, the failure email's "Reason" line, and the builder's jump-to-failed-step affordance. `message` is truncated via `truncateString` from `@activepieces/shared` before being persisted, and the engine populates `failedStep` for every status in `FAILED_STATES` (FAILED, TIMEOUT, INTERNAL_ERROR, QUOTA_EXCEEDED, MEMORY_LIMIT_EXCEEDED) — not just `FAILED`.
 - **FriendlyPieceError**: Structured error shape (`__apErrorVersion`, `message`, optional `status`, `errorName`, `requestBody`, `responseBody`, `apiMessage`, `raw`) produced by `formatPieceError` in the engine when a piece step throws (replacing the old `util.inspect` dump). The builder parses it with `tryParseFriendlyPieceError` and renders a `FriendlyErrorView` card — plain-language headline, the service's message, a "Copy Error for AI" button, and a "Technical Details" disclosure holding the `raw` dump — in both the test panel and the run-details output view.
-- **PieceInvocationMiddleware**: Engine-local middleware registered in `packages/server/engine/src/lib/plugins/`. Piece action `run` / `test` and trigger `run` / `test` phases can replace the piece context passed into the callback and the callback output returned to the engine. Trigger lifecycle, dynamic properties, auth validation, and metadata extraction phases are observe-only.
+- **PieceInvocationMiddleware**: Engine middleware registered in `packages/server/engine/src/lib/plugins/` directly or by external Engine Plugin packages configured with `AP_ENGINE_PLUGINS`. Piece action `run` / `test` and trigger `run` / `test` phases can replace the piece context passed into the callback and the callback output returned to the engine. Trigger lifecycle, dynamic properties, auth validation, and metadata extraction phases are observe-only.
 
 ## Entity
 
@@ -112,7 +112,9 @@ A separate scheduled EE job (`ee/flow-run-tracking/`, `SystemJobName.FLOW_RUN_TR
 
 ## Piece Invocation Middleware
 
-The engine routes piece-authored callbacks through `runWithPieceInvocationMiddleware()`. Middleware matches by canonical piece package name, with exact string, `RegExp`, predicate, or no matcher for global coverage. `before` hooks run before the piece callback in registration order; `after` hooks run in reverse registration order with either output or error and duration. Piece errors remain errors after middleware observation.
+The engine routes piece-authored callbacks through `runWithPieceInvocationMiddleware()`. Middleware matches by canonical piece package name, with exact string, `RegExp`, structured matcher object, predicate, or no matcher for global coverage. `before` hooks run before the piece callback in registration order; `after` hooks run in reverse registration order with either output or error and duration. Piece errors remain errors after middleware observation.
+
+Middleware hook errors and hook timeouts follow the configured hook failure policy. The default `fail-invocation` policy propagates the hook failure to the piece callback and can fail the step or trigger execution. `log-and-continue` logs the hook failure or timeout, ignores that hook result, and allows the piece callback path to continue. Hook timeouts default to `AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS` and are capped by `AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS`.
 
 ## Frontend Integration
 

@@ -1,6 +1,6 @@
 # Domain Glossary — Activepieces
 
-> Last updated: 2026-04-16
+> Last updated: 2026-07-01
 
 ## Automation Core
 
@@ -42,11 +42,16 @@
 |---|---|---|---|
 | App Connection | A stored set of credentials (OAuth2, API key, basic auth, etc.) used by pieces to authenticate with external services. | credential, auth, integration key | Piece, Connection Type, Global Connection |
 | Connection Type | The authentication strategy for a connection: OAUTH2, CLOUD_OAUTH2, PLATFORM_OAUTH2, SECRET_TEXT, BASIC_AUTH, CUSTOM_AUTH, NO_AUTH. | auth type | App Connection |
+| Engine Plugin | An operator-installed runtime extension loaded by the engine that can register plugin capabilities such as piece invocation middleware. | runtime plugin | Plugin Package, Plugin Loader, Plugin Registry, Plugin Capability |
 | externalId | A stable UUID used to cross-reference flows or connections across imports, templates, and environments. | — | Flow, App Connection, Project Release |
 | Global Connection | A platform-scoped App Connection shared across all projects (scope = PLATFORM). | shared connection | App Connection, Platform |
 | OAuth App | Custom OAuth2 client credentials registered per piece to override Activepieces defaults. | — | App Connection, Piece |
 | Piece | A packaged integration (npm package) that provides triggers and actions for a specific service or capability. | connector, plugin, integration, app | Action, Trigger, Piece Metadata |
 | Piece Metadata | The registry entry for an installed piece — name, version, auth schema, available actions/triggers. | — | Piece |
+| Plugin Capability | A feature exposed by an Engine Plugin, currently piece invocation middleware. | extension point | Engine Plugin, PieceInvocationMiddleware |
+| Plugin Loader | The engine startup component that parses `AP_ENGINE_PLUGINS`, imports plugin packages, validates descriptors, and registers enabled plugins. | — | Engine Plugin, Plugin Package, Plugin Registry |
+| Plugin Package | A statically installed Node package or development-only absolute path listed in `AP_ENGINE_PLUGINS` for the Plugin Loader to import. | plugin module | Engine Plugin, Plugin Loader |
+| Plugin Registry | The process-local in-memory registry of loaded Engine Plugins and their capabilities. | — | Engine Plugin, Plugin Loader, Plugin Capability |
 
 ## Platform & Multi-tenancy
 
