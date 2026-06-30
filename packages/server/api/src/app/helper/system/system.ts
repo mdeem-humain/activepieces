@@ -60,6 +60,9 @@ const systemPropDefaultValues: Partial<Record<SystemProp, string>> = {
     [AppSystemProp.NETWORK_MODE]: NetworkMode.UNRESTRICTED,
     [AppSystemProp.LOG_SAMPLE_RATE_INFO]: '100',
     [AppSystemProp.LOG_KEEP_SLOW_MS]: '2000',
+    [AppSystemProp.ENGINE_PLUGINS]: '[]',
+    [AppSystemProp.ENGINE_PLUGIN_HOOK_TIMEOUT_MS]: '5000',
+    [AppSystemProp.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS]: '30000',
 }
 
 let globalLogger: FastifyBaseLogger

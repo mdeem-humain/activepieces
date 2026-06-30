@@ -1,5 +1,6 @@
 import { inspect } from 'util'
-import { isNil } from '@activepieces/core-utils'
+import { EnginePluginHookTimeoutConfigSchema, parseEnginePluginPackageConfigList } from '@activepieces/core-execution'
+import { isNil, tryCatchSync } from '@activepieces/core-utils'
 import { ApEdition, ApEnvironment, DefaultProjectRole, ExecutionMode, FileLocation, NetworkMode, PieceSyncMode } from '@activepieces/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { DatabaseType } from '../database/database-type'
@@ -92,6 +93,9 @@ const systemPropValidators: {
     [AppSystemProp.DB_TYPE]: enumValidator(Object.values(DatabaseType)),
     [AppSystemProp.DEV_PIECES]: stringValidator,
     [AppSystemProp.ENCRYPTION_KEY]: stringValidator,
+    [AppSystemProp.ENGINE_PLUGINS]: stringValidator,
+    [AppSystemProp.ENGINE_PLUGIN_HOOK_TIMEOUT_MS]: numberValidator,
+    [AppSystemProp.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS]: numberValidator,
     [AppSystemProp.EXECUTION_DATA_RETENTION_DAYS]: numberValidator,
     [AppSystemProp.JWT_SECRET]: stringValidator,
     [AppSystemProp.DEFAULT_CONCURRENT_JOBS_LIMIT]: numberValidator,
@@ -227,6 +231,56 @@ const validateSystemPropTypes = () => {
     return errors
 }
 
+function validateEnginePluginConfigOnStartup(): void {
+    validateEnginePlugins()
+    validateEnginePluginHookTimeouts()
+}
+
+function validateEnginePlugins(): void {
+    const validationResult = tryCatchSync(() => parseEnginePluginPackageConfigList({
+        value: system.getOrThrow(AppSystemProp.ENGINE_PLUGINS),
+        environment: system.getOrThrow(AppSystemProp.ENVIRONMENT),
+    }))
+
+    if (validationResult.error !== null) {
+        throwEnginePluginConfigError({
+            message: 'AP_ENGINE_PLUGINS is invalid. Check the engine plugin configuration.',
+        })
+    }
+}
+
+function validateEnginePluginHookTimeouts(): void {
+    const validationResult = EnginePluginHookTimeoutConfigSchema.safeParse({
+        timeoutMs: getSystemPropNumber({ prop: AppSystemProp.ENGINE_PLUGIN_HOOK_TIMEOUT_MS }),
+        maxTimeoutMs: getSystemPropNumber({ prop: AppSystemProp.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS }),
+    })
+
+    if (!validationResult.success) {
+        throwEnginePluginConfigError({
+            message: 'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS and AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS must be positive numbers.',
+        })
+    }
+}
+
+function getSystemPropNumber({
+    prop,
+}: {
+    prop: SystemProp
+}): number {
+    return Number(system.get(prop))
+}
+
+function throwEnginePluginConfigError({
+    message,
+}: {
+    message: string
+}): never {
+    throw new Error(JSON.stringify({
+        message,
+        docUrl: 'https://www.activepieces.com/docs/install/configuration/environment-variables',
+    }))
+}
+
 export const validateEnvPropsOnStartup = async (log: FastifyBaseLogger): Promise<void> => {
 
     const environment = system.get(AppSystemProp.ENVIRONMENT)
@@ -251,6 +305,7 @@ export const validateEnvPropsOnStartup = async (log: FastifyBaseLogger): Promise
             errors,
         }, '[validateEnvPropsOnStartup]')
     }
+    validateEnginePluginConfigOnStartup()
 
     const codeSandboxType = process.env.AP_CODE_SANDBOX_TYPE
     if (!isNil(codeSandboxType)) {
