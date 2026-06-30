@@ -1,0 +1,9 @@
+{
+  "name": "@activepieces-test/engine-plugin-manifest-valid",
+  "version": "1.0.0",
+  "main": "index.cjs",
+  "activepieces": {
+    "kind": "engine-plugin",
+    "apiVersion": "2026-07-01"
+  }
+}

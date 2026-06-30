@@ -1,6 +1,7 @@
+import { enginePluginLoader } from './engine-plugin-loader'
 import { enginePlugins } from './engine-plugins'
 
-export { enginePlugins }
+export { enginePluginLoader, enginePlugins }
 export type {
     EnginePlugin,
     EnginePluginApiVersion,

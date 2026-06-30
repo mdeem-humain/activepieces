@@ -1,0 +1,5 @@
+{
+  "name": "@activepieces-test/engine-plugin-unsupported-api-version",
+  "version": "1.0.0",
+  "main": "index.cjs"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@activepieces-test/engine-plugin-manifest-wrong-kind",
+  "version": "1.0.0",
+  "main": "index.cjs",
+  "activepieces": {
+    "kind": "piece",
+    "apiVersion": "2026-07-01"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "@activepieces-test/engine-plugin-import-throw",
+  "version": "1.0.0",
+  "main": "index.cjs"
+}

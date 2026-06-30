@@ -1,0 +1,5 @@
+{
+  "name": "@activepieces-test/engine-plugin-invalid-descriptor",
+  "version": "1.0.0",
+  "main": "index.cjs"
+}

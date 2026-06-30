@@ -1,0 +1,5 @@
+{
+  "name": "@activepieces-test/engine-plugin-cjs-default",
+  "version": "1.0.0",
+  "main": "index.cjs"
+}
