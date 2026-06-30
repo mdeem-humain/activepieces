@@ -91,7 +91,7 @@ const executeAction: ActionHandler<PieceAction> = async ({ action, executionStat
             })
         }
         const context: ActionContext<PieceAuthProperty, InputPropertyMap> = {
-            executionType: isPaused ? ExecutionType.RESUME : ExecutionType.BEGIN,
+            executionType: getActionExecutionType({ constants, isPaused }),
             resumePayload: constants.resumePayload!,
             store: createContextStore({
                 apiUrl: constants.internalApiUrl,
@@ -166,6 +166,8 @@ const executeAction: ActionHandler<PieceAction> = async ({ action, executionStat
                 flowRunId: constants.flowRunId,
                 stepName: action.name,
                 actionOrTriggerName: action.settings.actionName,
+                runEnvironment: constants.runEnvironment,
+                executionType: getPieceInvocationExecutionType({ constants }),
             },
             input: backwardCompatibleContext,
             invoke: async (input) => {
@@ -255,6 +257,31 @@ function isActionContext(input: unknown): input is ActionContext<PieceAuthProper
         && 'propsValue' in input
         && 'run' in input
         && 'project' in input
+}
+
+function getActionExecutionType({
+    constants,
+    isPaused,
+}: {
+    constants: EngineConstants
+    isPaused: boolean
+}): ExecutionType {
+    return constants.executionType ?? (isPaused ? ExecutionType.RESUME : ExecutionType.BEGIN)
+}
+
+function getPieceInvocationExecutionType({
+    constants,
+}: {
+    constants: EngineConstants
+}): 'BEGIN' | 'RESUME' | undefined {
+    switch (constants.executionType) {
+        case ExecutionType.BEGIN:
+            return 'BEGIN'
+        case ExecutionType.RESUME:
+            return 'RESUME'
+        case undefined:
+            return undefined
+    }
 }
 
 const createTagsManager = (hkParams: createTagsManagerParams): TagsManager => {

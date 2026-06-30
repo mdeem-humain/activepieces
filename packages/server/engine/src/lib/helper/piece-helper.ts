@@ -12,7 +12,7 @@ import {
     pieceTranslation,
     PropertyType,
     StaticPropsValue } from '@activepieces/pieces-framework'
-import { AppConnectionType, AppConnectionValue, EngineGenericError, ExecuteExtractPieceMetadata, ExecutePropsOptions, ExecuteValidateAuthOperation, ExecuteValidateAuthResponse } from '@activepieces/shared'
+import { AppConnectionType, AppConnectionValue, EngineGenericError, ExecuteExtractPieceMetadata, ExecutePropsOptions, ExecuteValidateAuthOperation, ExecuteValidateAuthResponse, ExecutionType } from '@activepieces/shared'
 import { EngineConstants } from '../handler/context/engine-constants'
 import { testExecutionContext } from '../handler/context/test-execution-context'
 import { createFlowsContext } from '../piece-context/flows'
@@ -82,7 +82,7 @@ export const pieceHelper = {
                         context: createPropertyInvocationContext({
                             operation,
                             phase: 'property.props',
-                            platformId: constants.platformId,
+                            constants,
                         }),
                         input: {
                             resolvedInput,
@@ -103,7 +103,7 @@ export const pieceHelper = {
                         context: createPropertyInvocationContext({
                             operation,
                             phase: 'property.options',
-                            platformId: constants.platformId,
+                            constants,
                         }),
                         input: {
                             resolvedInput,
@@ -121,7 +121,7 @@ export const pieceHelper = {
                         context: createPropertyInvocationContext({
                             operation,
                             phase: 'property.options',
-                            platformId: constants.platformId,
+                            constants,
                         }),
                         input: {
                             resolvedInput,
@@ -209,18 +209,35 @@ type ExecutePropsParams = Omit<ExecutePropsOptions, 'piece'> & { pieceName: stri
 function createPropertyInvocationContext({
     operation,
     phase,
-    platformId,
+    constants,
 }: CreatePropertyInvocationContextParams): PieceInvocationContext {
     return {
         pieceName: operation.pieceName,
         pieceVersion: operation.pieceVersion,
         phase,
         projectId: operation.projectId,
-        platformId,
+        platformId: constants.platformId,
         flowId: operation.flowVersion?.flowId,
         flowVersionId: operation.flowVersion?.id,
         stepName: operation.actionOrTriggerName,
         actionOrTriggerName: operation.actionOrTriggerName,
+        runEnvironment: constants.runEnvironment,
+        executionType: getPieceInvocationExecutionType({ constants }),
+    }
+}
+
+function getPieceInvocationExecutionType({
+    constants,
+}: {
+    constants: EngineConstants
+}): 'BEGIN' | 'RESUME' | undefined {
+    switch (constants.executionType) {
+        case ExecutionType.BEGIN:
+            return 'BEGIN'
+        case ExecutionType.RESUME:
+            return 'RESUME'
+        case undefined:
+            return undefined
     }
 }
 
@@ -349,5 +366,5 @@ type ValidateAuthParams = {
 type CreatePropertyInvocationContextParams = {
     operation: ExecutePropsParams
     phase: 'property.options' | 'property.props'
-    platformId: string
+    constants: EngineConstants
 }

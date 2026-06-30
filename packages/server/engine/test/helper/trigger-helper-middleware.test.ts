@@ -1,5 +1,5 @@
 import { TriggerStrategy } from '@activepieces/pieces-framework'
-import { FlowTriggerType, FlowVersionState, PropertyExecutionType, TriggerHookType } from '@activepieces/shared'
+import { ExecutionType, FlowTriggerType, FlowVersionState, PropertyExecutionType, RunEnvironment, TriggerHookType } from '@activepieces/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineConstants, ResolvedExecuteTriggerOperation } from '../../src/lib/handler/context/engine-constants'
 import { triggerHelper } from '../../src/lib/helper/trigger-helper'
@@ -101,6 +101,93 @@ describe('triggerHelper piece invocation middleware', () => {
         await triggerHelper.executeTrigger(createExecuteTriggerParams({ hookType: TriggerHookType.RUN }))
 
         expect(calls).toEqual(['@activepieces/piece-webhook'])
+    })
+
+    it('passes trigger context metadata and replaceability flags to middleware', async () => {
+        const contexts: TriggerMiddlewareContext[] = []
+        const constants = createEngineConstants({
+            runEnvironment: RunEnvironment.PRODUCTION,
+            executionType: ExecutionType.RESUME,
+        })
+        enginePlugins.register({
+            name: 'trigger-context-plugin',
+            pieceInvocationMiddleware: [{
+                name: 'trigger-context-middleware',
+                before: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
+                },
+                after: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
+                },
+            }],
+        })
+
+        await triggerHelper.executeTrigger({
+            params: createExecuteTriggerParams({ hookType: TriggerHookType.RUN }).params,
+            constants,
+        })
+        await triggerHelper.executeTrigger({
+            params: createExecuteTriggerParams({ hookType: TriggerHookType.ON_ENABLE }).params,
+            constants,
+        })
+        await triggerHelper.executeOnStart(createFlowVersion().trigger, constants, createPayload({ marker: 'start' }))
+
+        expect(contexts).toEqual([
+            {
+                phase: 'trigger.run',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+            {
+                phase: 'trigger.run',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+            {
+                phase: 'trigger.onEnable',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: false,
+                canReplaceOutput: false,
+            },
+            {
+                phase: 'trigger.onEnable',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: false,
+                canReplaceOutput: false,
+            },
+            {
+                phase: 'trigger.onStart',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: false,
+                canReplaceOutput: false,
+            },
+            {
+                phase: 'trigger.onStart',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: false,
+                canReplaceOutput: false,
+            },
+        ])
     })
 
     it('allows trigger run middleware to replace context input and returned items', async () => {
@@ -274,9 +361,10 @@ function createExecuteTriggerParams({
     }
 }
 
-function createEngineConstants(): EngineConstants {
+function createEngineConstants(params?: Partial<EngineConstants>): EngineConstants {
     return generateMockEngineConstants({
         triggerPieceName: '@activepieces/piece-webhook',
+        ...params,
     })
 }
 
@@ -345,4 +433,12 @@ type LoadedTriggerOverrides = {
 
 type PayloadContext = {
     payload: unknown
+}
+
+type TriggerMiddlewareContext = {
+    phase: string
+    runEnvironment?: string
+    executionType?: string
+    canReplaceInput: boolean
+    canReplaceOutput: boolean
 }

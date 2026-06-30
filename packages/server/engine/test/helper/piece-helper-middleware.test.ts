@@ -48,7 +48,7 @@ describe('pieceHelper piece invocation middleware', () => {
     })
 
     it('wraps dynamic property props callbacks with property.props phase and context metadata', async () => {
-        const phases: string[] = []
+        const contexts: PieceHelperMiddlewareContext[] = []
         const stepNames: Array<string | undefined> = []
         mockGetPropOrThrow.mockResolvedValue({
             property: Property.DynamicProperties({
@@ -68,8 +68,18 @@ describe('pieceHelper piece invocation middleware', () => {
             name: 'property-props-plugin',
             pieceInvocationMiddleware: [{
                 name: 'property-props-middleware',
-                before: async ({ phase, pieceName, pieceVersion, projectId, platformId, stepName, actionOrTriggerName }) => {
-                    phases.push(`${pieceName}:${pieceVersion}:${phase}:${projectId}:${platformId}`)
+                before: async ({ phase, pieceName, pieceVersion, projectId, platformId, stepName, actionOrTriggerName, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        pieceName,
+                        pieceVersion,
+                        phase,
+                        projectId,
+                        platformId,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
                     stepNames.push(stepName, actionOrTriggerName)
                 },
             }],
@@ -80,7 +90,17 @@ describe('pieceHelper piece invocation middleware', () => {
         }))
 
         expect(result.type).toBe(PropertyType.DYNAMIC)
-        expect(phases).toEqual(['@activepieces/piece-test:1.0.0:property.props:projectId:platformId'])
+        expect(contexts).toEqual([{
+            pieceName: '@activepieces/piece-test',
+            pieceVersion: '1.0.0',
+            phase: 'property.props',
+            projectId: 'projectId',
+            platformId: 'platformId',
+            runEnvironment: undefined,
+            executionType: undefined,
+            canReplaceInput: false,
+            canReplaceOutput: false,
+        }])
         expect(stepNames).toEqual(['step_name', 'step_name'])
     })
 
@@ -172,7 +192,7 @@ describe('pieceHelper piece invocation middleware', () => {
     })
 
     it('wraps auth validate callbacks and skips middleware when no validate callback exists', async () => {
-        const phases: string[] = []
+        const contexts: PieceHelperMiddlewareContext[] = []
         const validate = vi.fn().mockResolvedValue({ valid: true })
         mockLoadPieceOrThrow.mockResolvedValueOnce(createPiece({
             auth: PieceAuth.SecretText({
@@ -191,8 +211,18 @@ describe('pieceHelper piece invocation middleware', () => {
             name: 'auth-plugin',
             pieceInvocationMiddleware: [{
                 name: 'auth-middleware',
-                before: async ({ phase }) => {
-                    phases.push(phase)
+                before: async ({ phase, pieceName, pieceVersion, projectId, platformId, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        pieceName,
+                        pieceVersion,
+                        phase,
+                        projectId,
+                        platformId,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
                 },
             }],
         })
@@ -209,11 +239,21 @@ describe('pieceHelper piece invocation middleware', () => {
         expect(firstResult).toEqual({ valid: true })
         expect(secondResult).toEqual({ valid: true })
         expect(validate).toHaveBeenCalledTimes(1)
-        expect(phases).toEqual(['auth.validate'])
+        expect(contexts).toEqual([{
+            pieceName: '@activepieces/piece-test',
+            pieceVersion: '1.0.0',
+            phase: 'auth.validate',
+            projectId: undefined,
+            platformId: 'platformId',
+            runEnvironment: undefined,
+            executionType: undefined,
+            canReplaceInput: false,
+            canReplaceOutput: false,
+        }])
     })
 
     it('wraps metadata extraction callbacks', async () => {
-        const phases: string[] = []
+        const contexts: PieceHelperMiddlewareContext[] = []
         mockLoadPieceOrThrow.mockResolvedValue(createPiece({
             metadata: () => ({
                 name: '@activepieces/piece-test',
@@ -233,8 +273,18 @@ describe('pieceHelper piece invocation middleware', () => {
             name: 'metadata-plugin',
             pieceInvocationMiddleware: [{
                 name: 'metadata-middleware',
-                before: async ({ phase }) => {
-                    phases.push(phase)
+                before: async ({ phase, pieceName, pieceVersion, projectId, platformId, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        pieceName,
+                        pieceVersion,
+                        phase,
+                        projectId,
+                        platformId,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
                 },
             }],
         })
@@ -250,7 +300,17 @@ describe('pieceHelper piece invocation middleware', () => {
 
         expect(result.name).toBe('@activepieces/piece-test')
         expect(result.version).toBe('1.0.0')
-        expect(phases).toEqual(['metadata.extract'])
+        expect(contexts).toEqual([{
+            pieceName: '@activepieces/piece-test',
+            pieceVersion: '1.0.0',
+            phase: 'metadata.extract',
+            projectId: undefined,
+            platformId: 'platformId',
+            runEnvironment: undefined,
+            executionType: undefined,
+            canReplaceInput: false,
+            canReplaceOutput: false,
+        }])
     })
 })
 
@@ -322,4 +382,16 @@ type TestPiece = {
     authors: string[]
     getContextInfo: () => { version: undefined }
     metadata: () => Record<string, unknown>
+}
+
+type PieceHelperMiddlewareContext = {
+    pieceName: string
+    pieceVersion: string
+    phase: string
+    projectId?: string
+    platformId?: string
+    runEnvironment?: string
+    executionType?: string
+    canReplaceInput: boolean
+    canReplaceOutput: boolean
 }

@@ -1,5 +1,5 @@
 import { tryParseFriendlyPieceError } from '@activepieces/core-utils'
-import { FlowAction, FlowRunStatus } from '@activepieces/shared'
+import { ExecutionType, FlowAction, FlowRunStatus, RunEnvironment } from '@activepieces/shared'
 import { afterEach } from 'vitest'
 import { FlowExecutorContext } from '../../src/lib/handler/context/flow-execution-context'
 import { flowExecutor } from '../../src/lib/handler/flow-executor'
@@ -143,6 +143,60 @@ describe('pieceExecutor', () => {
             status: FlowRunStatus.RUNNING,
         })
         expect(phases).toEqual(['action.run'])
+    })
+
+    it('passes run environment and execution type to action run middleware context', async () => {
+        const contexts: ActionMiddlewareContext[] = []
+        enginePlugins.register({
+            name: 'action-run-context-plugin',
+            pieceInvocationMiddleware: [{
+                name: 'action-run-context-middleware',
+                before: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
+                },
+                after: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
+                },
+            }],
+        })
+
+        await pieceExecutor.handle({
+            action: buildDataMapperAction(),
+            executionState: FlowExecutorContext.empty(),
+            constants: generateMockEngineConstants({
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+            }),
+        })
+
+        expect(contexts).toEqual([
+            {
+                phase: 'action.run',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+            {
+                phase: 'action.run',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.RESUME,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+        ])
     })
 
     it('matches action middleware by exact piece name', async () => {
@@ -306,14 +360,29 @@ describe('pieceExecutor', () => {
     }, 30000)
 
     it('uses action.test phase in single-step test mode when the action defines test', async () => {
-        const phases: string[] = []
+        const contexts: ActionMiddlewareContext[] = []
         enginePlugins.register({
             name: 'action-test-plugin',
             pieceInvocationMiddleware: [{
                 name: 'action-test-middleware',
                 match: '@activepieces/piece-delay',
-                before: async ({ phase }) => {
-                    phases.push(phase)
+                before: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
+                },
+                after: async ({ phase, runEnvironment, executionType, canReplaceInput, canReplaceOutput }) => {
+                    contexts.push({
+                        phase,
+                        runEnvironment,
+                        executionType,
+                        canReplaceInput,
+                        canReplaceOutput,
+                    })
                 },
             }],
         })
@@ -330,6 +399,8 @@ describe('pieceExecutor', () => {
             }),
             executionState: FlowExecutorContext.empty(),
             constants: generateMockEngineConstants({
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.BEGIN,
                 stepNameToTest: 'delay',
             }),
         })
@@ -341,7 +412,22 @@ describe('pieceExecutor', () => {
             delayForInMs: 1000,
             success: true,
         })
-        expect(phases).toEqual(['action.test'])
+        expect(contexts).toEqual([
+            {
+                phase: 'action.test',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.BEGIN,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+            {
+                phase: 'action.test',
+                runEnvironment: RunEnvironment.PRODUCTION,
+                executionType: ExecutionType.BEGIN,
+                canReplaceInput: true,
+                canReplaceOutput: true,
+            },
+        ])
     })
 })
 
@@ -366,4 +452,12 @@ function hasPropsValue(input: unknown): input is ActionContextWithPropsValue {
 
 type ActionContextWithPropsValue = {
     propsValue: Record<string, unknown>
+}
+
+type ActionMiddlewareContext = {
+    phase: string
+    runEnvironment?: string
+    executionType?: string
+    canReplaceInput: boolean
+    canReplaceOutput: boolean
 }

@@ -25,6 +25,7 @@ type EngineConstantsParams = {
     httpRequestId: string | null
     resumePayload?: ResumePayload
     runEnvironment?: RunEnvironment
+    executionType?: ExecutionType
     stepNameToTest?: string
     logsFileId?: string
     timeoutInSeconds: number
@@ -65,6 +66,7 @@ export class EngineConstants {
     public readonly httpRequestId: string | null
     public readonly resumePayload?: ResumePayload
     public readonly runEnvironment?: RunEnvironment
+    public readonly executionType?: ExecutionType
     public readonly stepNameToTest?: string
     public readonly logsFileId?: string
     public readonly stepNames: string[] = []
@@ -109,6 +111,7 @@ export class EngineConstants {
         this.httpRequestId = params.httpRequestId
         this.resumePayload = params.resumePayload
         this.runEnvironment = params.runEnvironment
+        this.executionType = params.executionType
         this.stepNameToTest = params.stepNameToTest
         this.logsFileId = params.logsFileId
         this.platformId = params.platformId
@@ -133,6 +136,7 @@ export class EngineConstants {
             httpRequestId: input.httpRequestId ?? null,
             resumePayload: input.executionType === ExecutionType.RESUME ? input.resumePayload : undefined,
             runEnvironment: input.runEnvironment,
+            executionType: input.executionType,
             stepNameToTest: input.stepNameToTest ?? undefined,
             logsFileId: input.logsFileId,
             timeoutInSeconds: input.timeoutInSeconds,
@@ -158,6 +162,7 @@ export class EngineConstants {
             httpRequestId: null,
             resumePayload: undefined,
             runEnvironment: undefined,
+            executionType: undefined,
             stepNameToTest: undefined,
             timeoutInSeconds: input.timeoutInSeconds,
             platformId: input.platformId,
@@ -182,6 +187,7 @@ export class EngineConstants {
             httpRequestId: null,
             resumePayload: undefined,
             runEnvironment: undefined,
+            executionType: undefined,
             stepNameToTest: undefined,
             timeoutInSeconds: input.timeoutInSeconds,
             platformId: input.platformId,
@@ -206,6 +212,7 @@ export class EngineConstants {
             httpRequestId: null,
             resumePayload: undefined,
             runEnvironment: undefined,
+            executionType: undefined,
             stepNameToTest: undefined,
             timeoutInSeconds: input.timeoutInSeconds,
             platformId: input.platformId,

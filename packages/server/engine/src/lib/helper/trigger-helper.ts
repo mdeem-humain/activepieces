@@ -1,6 +1,6 @@
 import { assertEqual, isNil } from '@activepieces/core-utils'
 import { OnStartContext, PiecePropertyMap, StaticPropsValue, TestOrRunHookContext, TriggerHookContext, TriggerStrategy } from '@activepieces/pieces-framework'
-import { AUTHENTICATION_PROPERTY_NAME, EngineGenericError, EventPayload, ExecuteTriggerResponse, FlowTrigger, InvalidCronExpressionError, PieceTrigger, PropertySettings, ScheduleOptions, TriggerHookType, TriggerSourceScheduleType } from '@activepieces/shared'
+import { AUTHENTICATION_PROPERTY_NAME, EngineGenericError, EventPayload, ExecuteTriggerResponse, ExecutionType, FlowTrigger, InvalidCronExpressionError, PieceTrigger, PropertySettings, ScheduleOptions, TriggerHookType, TriggerSourceScheduleType } from '@activepieces/shared'
 import { isValidCron } from 'cron-validator'
 import { EngineConstants, ResolvedExecuteTriggerOperation } from '../handler/context/engine-constants'
 import { FlowExecutorContext } from '../handler/context/flow-execution-context'
@@ -84,6 +84,8 @@ export const triggerHelper = {
                 flowRunId: constants.flowRunId,
                 stepName: trigger.name,
                 actionOrTriggerName: triggerName,
+                runEnvironment: constants.runEnvironment,
+                executionType: getPieceInvocationExecutionType({ constants }),
             }),
             input: context,
             invoke: async (input) => {
@@ -411,11 +413,28 @@ function createPieceInvocationContextFromExecuteTrigger({
         flowRunId: constants.flowRunId,
         stepName: params.flowVersion.trigger.name,
         actionOrTriggerName: triggerName,
+        runEnvironment: constants.runEnvironment,
+        executionType: getPieceInvocationExecutionType({ constants }),
     })
 }
 
 function createPieceInvocationContext(params: PieceInvocationContext): PieceInvocationContext {
     return params
+}
+
+function getPieceInvocationExecutionType({
+    constants,
+}: {
+    constants: EngineConstants
+}): 'BEGIN' | 'RESUME' | undefined {
+    switch (constants.executionType) {
+        case ExecutionType.BEGIN:
+            return 'BEGIN'
+        case ExecutionType.RESUME:
+            return 'RESUME'
+        case undefined:
+            return undefined
+    }
 }
 
 function isOnStartContext(input: unknown): input is OnStartContext<unknown, PiecePropertyMap> {

@@ -534,9 +534,34 @@ function validateMatcherObject({
         }
     }
     if (typeof match.pieceNamePattern === 'string') {
-        return { pieceNamePattern: match.pieceNamePattern }
+        return {
+            pieceNamePattern: getValidatedPieceNamePattern({
+                pieceNamePattern: match.pieceNamePattern,
+                packageName,
+                pluginIndex,
+                middlewareIndex,
+            }),
+        }
     }
     throw new Error(`Engine plugin middleware match from "${packageName}" at plugin index ${pluginIndex} middleware index ${middlewareIndex} is invalid`)
+}
+
+function getValidatedPieceNamePattern({
+    pieceNamePattern,
+    packageName,
+    pluginIndex,
+    middlewareIndex,
+}: {
+    pieceNamePattern: string
+    packageName: string
+    pluginIndex: number
+    middlewareIndex: number
+}): string {
+    const patternResult = tryCatchSync<RegExp, unknown>(() => new RegExp(pieceNamePattern))
+    if (patternResult.error !== null) {
+        throw new Error(`Engine plugin middleware match from "${packageName}" at plugin index ${pluginIndex} middleware index ${middlewareIndex} has invalid pieceNamePattern`)
+    }
+    return pieceNamePattern
 }
 
 function getOptionalBeforeHook({

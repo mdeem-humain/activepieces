@@ -1,6 +1,6 @@
 import { enginePlugins } from '../../src/lib/plugins/engine-plugins'
 import { runWithPieceInvocationMiddleware } from '../../src/lib/plugins/piece-invocation-middleware'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EnginePlugin } from '../../src/lib/plugins/engine-plugin'
 import type {
     PieceInvocationContext,
@@ -12,6 +12,20 @@ describe('piece invocation middleware', () => {
     beforeEach(() => {
         pluginId = 0
         enginePlugins.clear()
+        originalHookTimeoutMs = process.env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS
+        originalHookMaxTimeoutMs = process.env.AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS
+    })
+
+    afterEach(() => {
+        restoreEnvValue({
+            name: 'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS',
+            value: originalHookTimeoutMs,
+        })
+        restoreEnvValue({
+            name: 'AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS',
+            value: originalHookMaxTimeoutMs,
+        })
+        vi.restoreAllMocks()
     })
 
     it('runs middleware without a matcher for every piece', async () => {
@@ -57,6 +71,98 @@ describe('piece invocation middleware', () => {
         expect(calls).toEqual(['@activepieces/piece-http'])
     })
 
+    it('runs structured exact piece name matchers only for that piece name', async () => {
+        const calls: string[] = []
+        enginePlugins.register({
+            name: 'structured-exact-plugin',
+            apiVersion: '2026-07-01',
+            pieceInvocationMiddleware: [
+                {
+                    name: 'structured-exact-middleware',
+                    match: { pieceName: '@activepieces/piece-http' },
+                    before: async ({ pieceName }) => {
+                        calls.push(pieceName)
+                    },
+                },
+            ],
+        })
+
+        await invokeForPiece({ pieceName: '@activepieces/piece-http' })
+        await invokeForPiece({ pieceName: '@activepieces/piece-webhook' })
+
+        expect(calls).toEqual(['@activepieces/piece-http'])
+    })
+
+    it('runs structured piece name array matchers for every configured piece name', async () => {
+        const calls: string[] = []
+        enginePlugins.register({
+            name: 'structured-array-plugin',
+            apiVersion: '2026-07-01',
+            pieceInvocationMiddleware: [
+                {
+                    name: 'structured-array-middleware',
+                    match: {
+                        pieceName: [
+                            '@activepieces/piece-http',
+                            '@activepieces/piece-webhook',
+                        ],
+                    },
+                    before: async ({ pieceName }) => {
+                        calls.push(pieceName)
+                    },
+                },
+            ],
+        })
+
+        await invokeForPiece({ pieceName: '@activepieces/piece-http' })
+        await invokeForPiece({ pieceName: '@activepieces/piece-webhook' })
+        await invokeForPiece({ pieceName: '@custom/piece-http' })
+
+        expect(calls).toEqual([
+            '@activepieces/piece-http',
+            '@activepieces/piece-webhook',
+        ])
+    })
+
+    it('runs structured pattern matchers for matching piece names', async () => {
+        const calls: string[] = []
+        enginePlugins.register({
+            name: 'structured-pattern-plugin',
+            apiVersion: '2026-07-01',
+            pieceInvocationMiddleware: [
+                {
+                    name: 'structured-pattern-middleware',
+                    match: { pieceNamePattern: '^@activepieces/piece-' },
+                    before: async ({ pieceName }) => {
+                        calls.push(pieceName)
+                    },
+                },
+            ],
+        })
+
+        await invokeForPiece({ pieceName: '@activepieces/piece-http' })
+        await invokeForPiece({ pieceName: '@custom/piece-http' })
+
+        expect(calls).toEqual(['@activepieces/piece-http'])
+    })
+
+    it('rejects invalid structured pattern matchers', async () => {
+        enginePlugins.register({
+            name: 'invalid-pattern-plugin',
+            apiVersion: '2026-07-01',
+            pieceInvocationMiddleware: [
+                {
+                    name: 'invalid-pattern-middleware',
+                    match: { pieceNamePattern: '[' },
+                    before: async () => undefined,
+                },
+            ],
+        })
+
+        await expect(invokeForPiece({ pieceName: '@activepieces/piece-http' }))
+            .rejects.toThrow('Invalid pieceNamePattern matcher "["')
+    })
+
     it('runs regex matchers for matching package-style piece names', async () => {
         const calls: string[] = []
         enginePlugins.register({
@@ -77,6 +183,49 @@ describe('piece invocation middleware', () => {
         await invokeForPiece({ pieceName: '@custom/piece-http' })
 
         expect(calls).toEqual(['@activepieces/piece-http'])
+    })
+
+    it('passes the full invocation context to predicate matchers', async () => {
+        const matcherContexts: PieceInvocationContext[] = []
+        enginePlugins.register({
+            name: 'full-context-predicate-plugin',
+            apiVersion: '2026-07-01',
+            pieceInvocationMiddleware: [
+                {
+                    name: 'full-context-predicate-middleware',
+                    match: (context) => {
+                        matcherContexts.push(context)
+                        return context.phase === 'action.test'
+                            && context.projectId === 'projectId'
+                            && context.runEnvironment === 'TESTING'
+                            && context.executionType === 'BEGIN'
+                    },
+                    before: async () => undefined,
+                },
+            ],
+        })
+
+        await runWithPieceInvocationMiddleware({
+            context: createContext({
+                phase: 'action.test',
+                projectId: 'projectId',
+                runEnvironment: 'TESTING',
+                executionType: 'BEGIN',
+            }),
+            input: { value: 'input' },
+            invoke: async () => ({ value: 'original' }),
+        })
+
+        expect(matcherContexts).toEqual([
+            {
+                pieceName: '@activepieces/piece-http',
+                pieceVersion: '1.0.0',
+                phase: 'action.test',
+                projectId: 'projectId',
+                runEnvironment: 'TESTING',
+                executionType: 'BEGIN',
+            },
+        ])
     })
 
     it('passes pieceName to predicate matchers so they control matching', async () => {
@@ -314,6 +463,129 @@ describe('piece invocation middleware', () => {
         expect(observed).toEqual([originalInput])
         expect(output).toBe(originalOutput)
     })
+
+    it('uses middleware-level failure policy before plugin-level default', async () => {
+        const hookError = new Error('middleware override failed')
+        enginePlugins.register({
+            name: 'failure-policy-override-plugin',
+            apiVersion: '2026-07-01',
+            hookFailurePolicy: 'log-and-continue',
+            pieceInvocationMiddleware: [{
+                name: 'failure-policy-override-middleware',
+                failurePolicy: 'fail-invocation',
+                before: async () => {
+                    throw hookError
+                },
+            }],
+        })
+
+        await expect(invokeForPiece({ pieceName: '@activepieces/piece-http' })).rejects.toBe(hookError)
+    })
+
+    it('propagates hook failures with the default fail-invocation policy', async () => {
+        const hookError = new Error('before failed')
+        enginePlugins.register(pluginWithMiddleware({
+            before: async () => {
+                throw hookError
+            },
+        }))
+
+        await expect(invokeForPiece({ pieceName: '@activepieces/piece-http' })).rejects.toBe(hookError)
+    })
+
+    it('logs hook failures and continues when policy is log-and-continue', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        enginePlugins.register({
+            name: 'log-and-continue-plugin',
+            apiVersion: '2026-07-01',
+            hookFailurePolicy: 'log-and-continue',
+            pieceInvocationMiddleware: [{
+                name: 'log-and-continue-middleware',
+                before: async () => {
+                    throw new Error('before failed')
+                },
+            }],
+        })
+
+        const output = await invokeForPiece({ pieceName: '@activepieces/piece-http' })
+
+        expect(output).toEqual({ value: 'original' })
+        expect(warn).toHaveBeenCalledWith('Piece invocation middleware hook failed', {
+            pluginName: 'log-and-continue-plugin',
+            middlewareName: 'log-and-continue-middleware',
+            hookName: 'before',
+            errorName: 'Error',
+        })
+    })
+
+    it('fails invocation when a hook times out with the default policy', async () => {
+        process.env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS = '5'
+        enginePlugins.register(pluginWithMiddleware({
+            before: async () => new Promise<undefined>(() => undefined),
+        }))
+
+        await expect(invokeForPiece({ pieceName: '@activepieces/piece-http' }))
+            .rejects.toThrow(/timed out after 5ms/)
+    })
+
+    it('logs and continues when a hook times out with log-and-continue policy', async () => {
+        process.env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS = '5'
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        enginePlugins.register({
+            name: 'timeout-continue-plugin',
+            apiVersion: '2026-07-01',
+            hookFailurePolicy: 'log-and-continue',
+            pieceInvocationMiddleware: [{
+                name: 'timeout-continue-middleware',
+                before: async () => new Promise<undefined>(() => undefined),
+            }],
+        })
+
+        const output = await invokeForPiece({ pieceName: '@activepieces/piece-http' })
+
+        expect(output).toEqual({ value: 'original' })
+        expect(warn).toHaveBeenCalledWith('Piece invocation middleware hook failed', {
+            pluginName: 'timeout-continue-plugin',
+            middlewareName: 'timeout-continue-middleware',
+            hookName: 'before',
+            errorName: 'Error',
+        })
+    })
+
+    it('caps per-middleware timeout with the configured max timeout', async () => {
+        process.env.AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS = '100'
+        process.env.AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS = '10'
+        enginePlugins.register(pluginWithMiddleware({
+            timeoutMs: 500,
+            before: async () => new Promise<undefined>(() => undefined),
+        }))
+
+        await expect(invokeForPiece({ pieceName: '@activepieces/piece-http' }))
+            .rejects.toThrow(/timed out after 10ms/)
+    })
+
+    it('does not let after hooks replace a failed piece invocation with success', async () => {
+        const originalError = new Error('piece failed')
+        enginePlugins.register(pluginWithMiddleware({
+            after: async ({ error, canReplaceOutput }) => {
+                expect(error).toBe(originalError)
+                expect(canReplaceOutput).toBe(true)
+                return {
+                    output: {
+                        value: 'replacement',
+                    },
+                }
+            },
+        }))
+
+        await expect(runWithPieceInvocationMiddleware({
+            context: createContext(),
+            input: { value: 'input' },
+            invoke: async () => {
+                throw originalError
+            },
+        })).rejects.toBe(originalError)
+    })
 })
 
 async function invokeForPiece({
@@ -332,11 +604,13 @@ function createContext({
     pieceName = '@activepieces/piece-http',
     pieceVersion = '1.0.0',
     phase = 'action.run',
+    ...context
 }: Partial<PieceInvocationContext> = {}): PieceInvocationContext {
     return {
         pieceName,
         pieceVersion,
         phase,
+        ...context,
     }
 }
 
@@ -357,3 +631,19 @@ function pluginWithMiddleware(
 }
 
 let pluginId = 0
+let originalHookTimeoutMs: string | undefined
+let originalHookMaxTimeoutMs: string | undefined
+
+function restoreEnvValue({
+    name,
+    value,
+}: {
+    name: string
+    value: string | undefined
+}): void {
+    if (value === undefined) {
+        delete process.env[name]
+        return
+    }
+    process.env[name] = value
+}

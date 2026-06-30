@@ -16,6 +16,16 @@ function getPieceInvocationMiddleware(): PieceInvocationMiddleware[] {
     return registeredPlugins.flatMap((registeredPlugin) => registeredPlugin.plugin.pieceInvocationMiddleware ?? [])
 }
 
+function getRegisteredPieceInvocationMiddleware(): RegisteredPieceInvocationMiddleware[] {
+    return registeredPlugins.flatMap((registeredPlugin) => {
+        return (registeredPlugin.plugin.pieceInvocationMiddleware ?? []).map((middleware) => ({
+            pluginName: registeredPlugin.plugin.name,
+            pluginHookFailurePolicy: registeredPlugin.plugin.hookFailurePolicy,
+            middleware,
+        }))
+    })
+}
+
 function getRegisteredPlugins(): EnginePluginMetadata[] {
     return registeredPlugins.map((registeredPlugin) => ({ ...registeredPlugin.metadata }))
 }
@@ -95,6 +105,7 @@ function createEnginePluginMetadata({
 const enginePlugins = {
     register,
     getPieceInvocationMiddleware,
+    getRegisteredPieceInvocationMiddleware,
     getRegisteredPlugins,
     clear,
 }
@@ -109,6 +120,12 @@ type RegisterEnginePluginParams = {
 type RegisteredEnginePlugin = {
     plugin: EnginePlugin
     metadata: EnginePluginMetadata
+}
+
+type RegisteredPieceInvocationMiddleware = {
+    pluginName: EnginePlugin['name']
+    pluginHookFailurePolicy?: EnginePlugin['hookFailurePolicy']
+    middleware: PieceInvocationMiddleware
 }
 
 export { enginePlugins }

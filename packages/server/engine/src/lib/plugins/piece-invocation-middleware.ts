@@ -1,4 +1,5 @@
 import type {
+    HookFailurePolicy,
     PieceInvocationAfterResult,
     PieceInvocationBeforeResult,
     PieceInvocationContext,
@@ -6,6 +7,8 @@ import type {
     PieceInvocationMiddleware,
     PieceInvocationPhase,
 } from '@activepieces/core-execution'
+import { EnginePluginHookTimeoutConfigSchema } from '@activepieces/core-execution'
+import { tryCatch, tryCatchSync } from '@activepieces/core-utils'
 import { enginePlugins } from './engine-plugins'
 
 async function runWithPieceInvocationMiddleware<T>({
@@ -23,11 +26,18 @@ async function runWithPieceInvocationMiddleware<T>({
     let nextInput = input
 
     for (const middleware of matchingMiddleware) {
-        const beforeResult = await middleware.before?.({
-            ...context,
-            input: nextInput,
-            canReplaceInput,
-            canReplaceOutput,
+        if (middleware.middleware.before === undefined) {
+            continue
+        }
+        const beforeResult = await runMiddlewareHook({
+            registration: middleware,
+            hookName: 'before',
+            run: () => middleware.middleware.before?.({
+                ...context,
+                input: nextInput,
+                canReplaceInput,
+                canReplaceOutput,
+            }),
         })
         if (canReplaceInput && beforeResult !== undefined && hasInputReplacement(beforeResult)) {
             nextInput = beforeResult.input
@@ -61,15 +71,22 @@ async function runWithPieceInvocationMiddleware<T>({
         : undefined
 
     for (const middleware of middlewareForAfter) {
-        const afterResult = await middleware.after?.({
-            ...context,
-            output: successOutput?.output,
-            error: invocationError,
-            durationMs,
-            canReplaceInput,
-            canReplaceOutput,
+        if (middleware.middleware.after === undefined) {
+            continue
+        }
+        const afterResult = await runMiddlewareHook({
+            registration: middleware,
+            hookName: 'after',
+            run: () => middleware.middleware.after?.({
+                ...context,
+                output: successOutput?.output,
+                error: invocationError,
+                durationMs,
+                canReplaceInput,
+                canReplaceOutput,
+            }),
         })
-        if (canReplaceOutput && afterResult !== undefined && hasOutputReplacement<T>(afterResult)) {
+        if (!invocationFailed && canReplaceOutput && afterResult !== undefined && hasOutputReplacement<T>(afterResult)) {
             successOutput = {
                 output: afterResult.output,
             }
@@ -90,12 +107,12 @@ function getMatchingMiddleware({
     context,
 }: {
     context: PieceInvocationContext
-}): PieceInvocationMiddleware[] {
+}): RegisteredPieceInvocationMiddleware[] {
     return enginePlugins
-        .getPieceInvocationMiddleware()
-        .filter((middleware) => matchesPieceInvocationContext({
+        .getRegisteredPieceInvocationMiddleware()
+        .filter((registration) => matchesPieceInvocationContext({
             context,
-            match: middleware.match,
+            match: registration.middleware.match,
         }))
 }
 
@@ -151,7 +168,11 @@ function matchesPieceNamePattern({
     pieceNamePattern: string
     pieceName: string
 }): boolean {
-    return new RegExp(pieceNamePattern).test(pieceName)
+    const patternResult = tryCatchSync<RegExp, unknown>(() => new RegExp(pieceNamePattern))
+    if (patternResult.error !== null) {
+        throw new Error(`Invalid pieceNamePattern matcher "${pieceNamePattern}"`)
+    }
+    return patternResult.data.test(pieceName)
 }
 
 function canReplaceValue({
@@ -172,12 +193,118 @@ function hasOutputReplacement<TOutput>(
     return Object.prototype.hasOwnProperty.call(result, 'output')
 }
 
+async function runMiddlewareHook<TResult>({
+    registration,
+    hookName,
+    run,
+}: RunMiddlewareHookParams<TResult>): Promise<TResult | undefined> {
+    const timeoutConfig = getHookTimeoutConfig()
+    const timeoutMs = Math.min(
+        registration.middleware.timeoutMs ?? timeoutConfig.timeoutMs,
+        timeoutConfig.maxTimeoutMs,
+    )
+    const hookResult = await tryCatch<TResult | undefined, unknown>(() => withTimeout({
+        promise: run(),
+        timeoutMs,
+        registration,
+        hookName,
+    }))
+    if (hookResult.error === null) {
+        return hookResult.data
+    }
+
+    const failurePolicy = getHookFailurePolicy({ registration })
+    if (failurePolicy === 'log-and-continue') {
+        logHookFailure({
+            registration,
+            hookName,
+            error: hookResult.error,
+        })
+        return undefined
+    }
+    throw hookResult.error
+}
+
+function getHookTimeoutConfig(): HookTimeoutConfig {
+    return EnginePluginHookTimeoutConfigSchema.parse({
+        timeoutMs: getPositiveIntegerEnvironmentValue({ name: 'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS' }),
+        maxTimeoutMs: getPositiveIntegerEnvironmentValue({ name: 'AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS' }),
+    })
+}
+
+function getPositiveIntegerEnvironmentValue({
+    name,
+}: {
+    name: string
+}): number | undefined {
+    const value = process.env[name]
+    if (value === undefined || value.length === 0) {
+        return undefined
+    }
+    return Number(value)
+}
+
+function getHookFailurePolicy({
+    registration,
+}: {
+    registration: RegisteredPieceInvocationMiddleware
+}): HookFailurePolicy {
+    return registration.middleware.failurePolicy
+        ?? registration.pluginHookFailurePolicy
+        ?? DEFAULT_HOOK_FAILURE_POLICY
+}
+
+function logHookFailure({
+    registration,
+    hookName,
+    error,
+}: {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    error: unknown
+}): void {
+    console.warn('Piece invocation middleware hook failed', {
+        pluginName: registration.pluginName,
+        middlewareName: registration.middleware.name,
+        hookName,
+        errorName: getErrorName({ error }),
+    })
+}
+
+function getErrorName({
+    error,
+}: {
+    error: unknown
+}): string {
+    return error instanceof Error ? error.name : typeof error
+}
+
+function withTimeout<TResult>({
+    promise,
+    timeoutMs,
+    registration,
+    hookName,
+}: WithTimeoutParams<TResult>): Promise<TResult | undefined> {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error(`Piece invocation middleware "${registration.middleware.name}" ${hookName} hook timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+
+        Promise.resolve(promise)
+            .then(resolve)
+            .catch(reject)
+            .finally(() => clearTimeout(timeout))
+    })
+}
+
 const REPLACEABLE_PHASES: PieceInvocationPhase[] = [
     'action.run',
     'action.test',
     'trigger.run',
     'trigger.test',
 ]
+
+const DEFAULT_HOOK_FAILURE_POLICY: HookFailurePolicy = 'fail-invocation'
 
 type PieceInvocationResult<T> =
     | {
@@ -193,6 +320,28 @@ type PieceNameMatcher = PieceInvocationMatcher
 
 type OutputReplacement<TOutput> = PieceInvocationAfterResult<TOutput> & {
     output: TOutput
+}
+
+type RegisteredPieceInvocationMiddleware = ReturnType<typeof enginePlugins.getRegisteredPieceInvocationMiddleware>[number]
+
+type HookName = 'before' | 'after'
+
+type RunMiddlewareHookParams<TResult> = {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    run: () => Promise<TResult | undefined> | TResult | undefined
+}
+
+type HookTimeoutConfig = {
+    timeoutMs: number
+    maxTimeoutMs: number
+}
+
+type WithTimeoutParams<TResult> = {
+    promise: Promise<TResult | undefined> | TResult | undefined
+    timeoutMs: number
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
 }
 
 export { runWithPieceInvocationMiddleware }
