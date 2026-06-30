@@ -27,12 +27,21 @@ export const SandboxInformation = z.object({
 })
 
 export type SandboxInformation = z.infer<typeof SandboxInformation>
+
+export const WorkerEnginePluginMetadata = z.object({
+    packageName: z.string(),
+    version: z.string(),
+})
+
+export type WorkerEnginePluginMetadata = z.infer<typeof WorkerEnginePluginMetadata>
+
 export const WorkerProps = z.object({
     EXECUTION_MODE: z.string().optional(),
     WORKER_CONCURRENCY: z.string().optional(),
     SANDBOX_MEMORY_LIMIT: z.string().optional(),
     REUSE_SANDBOX: z.string().optional(),
     version: z.string().optional(),
+    enginePlugins: z.array(WorkerEnginePluginMetadata).optional(),
 })
 
 export type WorkerProps = z.infer<typeof WorkerProps>

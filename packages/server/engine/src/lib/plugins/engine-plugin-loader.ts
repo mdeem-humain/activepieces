@@ -14,6 +14,7 @@ import type {
     EnginePluginHealth,
     EnginePluginLogger,
     EnginePluginPackageConfig,
+    EnginePluginPackageFailurePolicy,
     HookFailurePolicy,
     PieceInvocationAfterContext,
     PieceInvocationAfterResult,
@@ -33,8 +34,18 @@ async function load(): Promise<void> {
     })
     const logger = createEnginePluginLogger()
 
+    logCompatibilityReport({
+        logger,
+        packageConfigs,
+    })
+
     for (const packageConfig of packageConfigs) {
         if (packageConfig.enabled === false) {
+            logPackageSkipped({
+                logger,
+                packageConfig,
+                reason: 'disabled',
+            })
             continue
         }
         await loadPackageConfig({
@@ -54,25 +65,36 @@ async function loadPackageConfig({
     environment: EnginePluginEnvironment
     logger: EnginePluginLogger
 }): Promise<void> {
-    const loadResult = await tryCatch<EnginePlugin[], unknown>(() => loadPackagePlugins({
-        packageConfig,
-        environment,
+    logPackageLoadStarted({
         logger,
-    }))
+        packageConfig,
+    })
 
-    if (loadResult.error === null) {
-        if (loadResult.data === null) {
-            throw new Error(`Engine plugin package "${packageConfig.packageName}" loaded without plugin descriptors`)
-        }
-        await registerLoadedPlugins({
-            plugins: loadResult.data,
-            packageName: packageConfig.packageName,
+    const loadResult = await tryCatch<EnginePlugin[], unknown>(async () => {
+        const plugins = await loadPackagePlugins({
+            packageConfig,
             environment,
             logger,
         })
+        await registerLoadedPlugins({
+            plugins,
+            packageName: packageConfig.packageName,
+            failurePolicy: packageConfig.failurePolicy,
+            environment,
+            logger,
+        })
+        return plugins
+    })
+
+    if (loadResult.error === null) {
         return
     }
 
+    logPackageLoadFailed({
+        packageConfig,
+        logger,
+        error: loadResult.error,
+    })
     handlePackageLoadFailure({
         packageConfig,
         logger,
@@ -122,11 +144,13 @@ async function loadPackagePlugins({
 async function registerLoadedPlugins({
     plugins,
     packageName,
+    failurePolicy,
     environment,
     logger,
 }: {
     plugins: EnginePlugin[]
     packageName: string
+    failurePolicy: EnginePluginPackageFailurePolicy
     environment: EnginePluginEnvironment
     logger: EnginePluginLogger
 }): Promise<void> {
@@ -135,14 +159,19 @@ async function registerLoadedPlugins({
             plugin,
             packageName,
         })
-        logger.info({
-            packageName,
-            pluginName: plugin.name,
-        }, 'Registered engine plugin')
         await plugin.onLoad?.({
             logger,
             environment,
         })
+        logger.info({
+            packageName,
+            pluginName: plugin.name,
+            version: plugin.version ?? UNKNOWN_ENGINE_PLUGIN_VERSION,
+            apiVersion: plugin.apiVersion,
+            status: 'loaded',
+            failurePolicy,
+            ...(plugin.hookFailurePolicy === undefined ? {} : { hookFailurePolicy: plugin.hookFailurePolicy }),
+        }, 'Engine plugin loaded')
     }
 }
 
@@ -156,13 +185,91 @@ function handlePackageLoadFailure({
     error: unknown
 }): void {
     if (packageConfig.failurePolicy === 'skip-plugin') {
-        logger.warn({
-            packageName: packageConfig.packageName,
-            errorName: getErrorName({ error }),
-        }, 'Skipping failed engine plugin package')
+        logPackageSkipped({
+            logger,
+            packageConfig,
+            reason: 'load-failed',
+        })
         return
     }
     throw error
+}
+
+function logCompatibilityReport({
+    logger,
+    packageConfigs,
+}: {
+    logger: EnginePluginLogger
+    packageConfigs: EnginePluginPackageConfig[]
+}): void {
+    logger.info({
+        apiVersion: ENGINE_PLUGIN_API_VERSION,
+        status: 'reported',
+        configuredPackageCount: packageConfigs.length,
+        enabledPackageCount: packageConfigs.filter((packageConfig) => packageConfig.enabled).length,
+        packages: packageConfigs.map((packageConfig) => ({
+            packageName: packageConfig.packageName,
+            status: packageConfig.enabled ? 'configured' : 'disabled',
+            failurePolicy: packageConfig.failurePolicy,
+        })),
+    }, 'Engine plugin compatibility report')
+}
+
+function logPackageLoadStarted({
+    logger,
+    packageConfig,
+}: {
+    logger: EnginePluginLogger
+    packageConfig: EnginePluginPackageConfig
+}): void {
+    logger.info({
+        packageName: packageConfig.packageName,
+        apiVersion: ENGINE_PLUGIN_API_VERSION,
+        status: 'started',
+        failurePolicy: packageConfig.failurePolicy,
+    }, 'Engine plugin package load started')
+}
+
+function logPackageLoadFailed({
+    logger,
+    packageConfig,
+    error,
+}: {
+    logger: EnginePluginLogger
+    packageConfig: EnginePluginPackageConfig
+    error: unknown
+}): void {
+    const logFields = {
+        packageName: packageConfig.packageName,
+        apiVersion: ENGINE_PLUGIN_API_VERSION,
+        status: 'failed',
+        failurePolicy: packageConfig.failurePolicy,
+        errorName: getErrorName({ error }),
+    }
+
+    if (packageConfig.failurePolicy === 'skip-plugin') {
+        logger.warn(logFields, 'Engine plugin package load failed')
+        return
+    }
+    logger.error(logFields, 'Engine plugin package load failed')
+}
+
+function logPackageSkipped({
+    logger,
+    packageConfig,
+    reason,
+}: {
+    logger: EnginePluginLogger
+    packageConfig: EnginePluginPackageConfig
+    reason: EnginePluginSkipReason
+}): void {
+    logger.warn({
+        packageName: packageConfig.packageName,
+        apiVersion: ENGINE_PLUGIN_API_VERSION,
+        status: 'skipped',
+        failurePolicy: packageConfig.failurePolicy,
+        reason,
+    }, 'Engine plugin package skipped')
 }
 
 function resolveEnginePluginPackage({
@@ -960,7 +1067,7 @@ function writeConsoleLog({
         consoleMethod(fieldsOrMessage)
         return
     }
-    consoleMethod(message, fieldsOrMessage)
+    consoleMethod(fieldsOrMessage, message)
 }
 
 function getEnginePluginSearchPaths(): string[] {
@@ -1012,6 +1119,7 @@ function hasOwnProperty({
 const DEFAULT_ENGINE_PLUGIN_PACKAGE_CONFIG = '[]'
 const DEFAULT_ENGINE_PLUGIN_ENVIRONMENT = 'production'
 const ENGINE_PLUGIN_MANIFEST_KIND = 'engine-plugin'
+const UNKNOWN_ENGINE_PLUGIN_VERSION = 'unknown'
 const DEFAULT_PLUGIN_EXPORT_NAMES = [
     'default',
     'enginePlugin',
@@ -1029,5 +1137,7 @@ type LoggerArguments =
     | [fields: Record<string, unknown>, message?: string]
 
 type ConsoleMethod = (...input: unknown[]) => void
+
+type EnginePluginSkipReason = 'disabled' | 'load-failed'
 
 export { enginePluginLoader }

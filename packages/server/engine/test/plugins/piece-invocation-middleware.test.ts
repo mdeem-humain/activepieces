@@ -283,6 +283,48 @@ describe('piece invocation middleware', () => {
         expect(calls).toEqual([])
     })
 
+    it('logs matched and completed hooks without input or output values', async () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+        enginePlugins.register({
+            plugin: {
+                name: 'structured-log-plugin',
+                apiVersion: '2026-07-01',
+                pieceInvocationMiddleware: [{
+                    name: 'structured-log-middleware',
+                    before: async () => undefined,
+                }],
+            },
+            packageName: '@acme/engine-plugin-logs',
+        })
+
+        await runWithPieceInvocationMiddleware({
+            context: createContext(),
+            input: { secret: 'secret-input-value' },
+            invoke: async () => ({ secret: 'secret-output-value' }),
+        })
+
+        expect(info).toHaveBeenCalledWith(expect.objectContaining({
+            packageName: '@acme/engine-plugin-logs',
+            pluginName: 'structured-log-plugin',
+            middlewareName: 'structured-log-middleware',
+            hookName: 'before',
+            status: 'matched',
+            failurePolicy: 'fail-invocation',
+            timeoutMs: expect.any(Number),
+        }), 'Piece invocation middleware hook matched')
+        expect(info).toHaveBeenCalledWith(expect.objectContaining({
+            packageName: '@acme/engine-plugin-logs',
+            pluginName: 'structured-log-plugin',
+            middlewareName: 'structured-log-middleware',
+            hookName: 'before',
+            status: 'completed',
+            failurePolicy: 'fail-invocation',
+            durationMs: expect.any(Number),
+        }), 'Piece invocation middleware hook completed')
+        expect(JSON.stringify(info.mock.calls)).not.toContain('secret-input-value')
+        expect(JSON.stringify(info.mock.calls)).not.toContain('secret-output-value')
+    })
+
     it('runs before hooks in registration order, invokes once, then runs after hooks in reverse order', async () => {
         const events: string[] = []
         enginePlugins.register(pluginWithMiddleware({
@@ -510,12 +552,15 @@ describe('piece invocation middleware', () => {
         const output = await invokeForPiece({ pieceName: '@activepieces/piece-http' })
 
         expect(output).toEqual({ value: 'original' })
-        expect(warn).toHaveBeenCalledWith('Piece invocation middleware hook failed', {
+        expect(warn).toHaveBeenCalledWith(expect.objectContaining({
             pluginName: 'log-and-continue-plugin',
             middlewareName: 'log-and-continue-middleware',
             hookName: 'before',
+            status: 'failed',
+            failurePolicy: 'log-and-continue',
             errorName: 'Error',
-        })
+            durationMs: expect.any(Number),
+        }), 'Piece invocation middleware hook failed')
     })
 
     it('fails invocation when a hook times out with the default policy', async () => {
@@ -544,12 +589,16 @@ describe('piece invocation middleware', () => {
         const output = await invokeForPiece({ pieceName: '@activepieces/piece-http' })
 
         expect(output).toEqual({ value: 'original' })
-        expect(warn).toHaveBeenCalledWith('Piece invocation middleware hook failed', {
+        expect(warn).toHaveBeenCalledWith(expect.objectContaining({
             pluginName: 'timeout-continue-plugin',
             middlewareName: 'timeout-continue-middleware',
             hookName: 'before',
-            errorName: 'Error',
-        })
+            status: 'timed-out',
+            failurePolicy: 'log-and-continue',
+            timeoutMs: 5,
+            errorName: 'HookTimeoutError',
+            durationMs: expect.any(Number),
+        }), 'Piece invocation middleware hook timed out')
     })
 
     it('caps per-middleware timeout with the configured max timeout', async () => {

@@ -203,6 +203,14 @@ async function runMiddlewareHook<TResult>({
         registration.middleware.timeoutMs ?? timeoutConfig.timeoutMs,
         timeoutConfig.maxTimeoutMs,
     )
+    const failurePolicy = getHookFailurePolicy({ registration })
+    logHookMatched({
+        registration,
+        hookName,
+        timeoutMs,
+        failurePolicy,
+    })
+    const startTime = performance.now()
     const hookResult = await tryCatch<TResult | undefined, unknown>(() => withTimeout({
         promise: run(),
         timeoutMs,
@@ -210,16 +218,36 @@ async function runMiddlewareHook<TResult>({
         hookName,
     }))
     if (hookResult.error === null) {
+        logHookCompleted({
+            registration,
+            hookName,
+            durationMs: performance.now() - startTime,
+            failurePolicy,
+        })
         return hookResult.data
     }
 
-    const failurePolicy = getHookFailurePolicy({ registration })
-    if (failurePolicy === 'log-and-continue') {
-        logHookFailure({
+    const durationMs = performance.now() - startTime
+    if (hookResult.error instanceof HookTimeoutError) {
+        logHookTimedOut({
+            registration,
+            hookName,
+            timeoutMs,
+            durationMs,
+            failurePolicy,
+        })
+    }
+    else {
+        logHookFailed({
             registration,
             hookName,
             error: hookResult.error,
+            durationMs,
+            failurePolicy,
         })
+    }
+
+    if (failurePolicy === 'log-and-continue') {
         return undefined
     }
     throw hookResult.error
@@ -254,21 +282,125 @@ function getHookFailurePolicy({
         ?? DEFAULT_HOOK_FAILURE_POLICY
 }
 
-function logHookFailure({
+function logHookMatched({
+    registration,
+    hookName,
+    timeoutMs,
+    failurePolicy,
+}: {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    timeoutMs: number
+    failurePolicy: HookFailurePolicy
+}): void {
+    console.info(createHookLogFields({
+        registration,
+        hookName,
+        status: 'matched',
+        failurePolicy,
+        timeoutMs,
+    }), 'Piece invocation middleware hook matched')
+}
+
+function logHookCompleted({
+    registration,
+    hookName,
+    durationMs,
+    failurePolicy,
+}: {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    durationMs: number
+    failurePolicy: HookFailurePolicy
+}): void {
+    console.info(createHookLogFields({
+        registration,
+        hookName,
+        status: 'completed',
+        failurePolicy,
+        durationMs,
+    }), 'Piece invocation middleware hook completed')
+}
+
+function logHookFailed({
     registration,
     hookName,
     error,
+    durationMs,
+    failurePolicy,
 }: {
     registration: RegisteredPieceInvocationMiddleware
     hookName: HookName
     error: unknown
+    durationMs: number
+    failurePolicy: HookFailurePolicy
 }): void {
-    console.warn('Piece invocation middleware hook failed', {
+    const logFields = createHookLogFields({
+        registration,
+        hookName,
+        status: 'failed',
+        failurePolicy,
+        durationMs,
+        errorName: getErrorName({ error }),
+    })
+
+    if (failurePolicy === 'log-and-continue') {
+        console.warn(logFields, 'Piece invocation middleware hook failed')
+        return
+    }
+    console.error(logFields, 'Piece invocation middleware hook failed')
+}
+
+function logHookTimedOut({
+    registration,
+    hookName,
+    timeoutMs,
+    durationMs,
+    failurePolicy,
+}: {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    timeoutMs: number
+    durationMs: number
+    failurePolicy: HookFailurePolicy
+}): void {
+    const logFields = createHookLogFields({
+        registration,
+        hookName,
+        status: 'timed-out',
+        failurePolicy,
+        timeoutMs,
+        durationMs,
+        errorName: HookTimeoutError.name,
+    })
+
+    if (failurePolicy === 'log-and-continue') {
+        console.warn(logFields, 'Piece invocation middleware hook timed out')
+        return
+    }
+    console.error(logFields, 'Piece invocation middleware hook timed out')
+}
+
+function createHookLogFields({
+    registration,
+    hookName,
+    status,
+    failurePolicy,
+    timeoutMs,
+    durationMs,
+    errorName,
+}: CreateHookLogFieldsParams): Record<string, unknown> {
+    return {
+        ...(registration.packageName === undefined ? {} : { packageName: registration.packageName }),
         pluginName: registration.pluginName,
         middlewareName: registration.middleware.name,
         hookName,
-        errorName: getErrorName({ error }),
-    })
+        status,
+        failurePolicy,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        ...(durationMs === undefined ? {} : { durationMs }),
+        ...(errorName === undefined ? {} : { errorName }),
+    }
 }
 
 function getErrorName({
@@ -287,7 +419,11 @@ function withTimeout<TResult>({
 }: WithTimeoutParams<TResult>): Promise<TResult | undefined> {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-            reject(new Error(`Piece invocation middleware "${registration.middleware.name}" ${hookName} hook timed out after ${timeoutMs}ms`))
+            reject(new HookTimeoutError({
+                registration,
+                hookName,
+                timeoutMs,
+            }))
         }, timeoutMs)
 
         Promise.resolve(promise)
@@ -295,6 +431,17 @@ function withTimeout<TResult>({
             .catch(reject)
             .finally(() => clearTimeout(timeout))
     })
+}
+
+class HookTimeoutError extends Error {
+    constructor({
+        registration,
+        hookName,
+        timeoutMs,
+    }: HookTimeoutErrorParams) {
+        super(`Piece invocation middleware "${registration.middleware.name}" ${hookName} hook timed out after ${timeoutMs}ms`)
+        this.name = 'HookTimeoutError'
+    }
 }
 
 const REPLACEABLE_PHASES: PieceInvocationPhase[] = [
@@ -326,6 +473,8 @@ type RegisteredPieceInvocationMiddleware = ReturnType<typeof enginePlugins.getRe
 
 type HookName = 'before' | 'after'
 
+type HookLogStatus = 'matched' | 'completed' | 'failed' | 'timed-out'
+
 type RunMiddlewareHookParams<TResult> = {
     registration: RegisteredPieceInvocationMiddleware
     hookName: HookName
@@ -335,6 +484,22 @@ type RunMiddlewareHookParams<TResult> = {
 type HookTimeoutConfig = {
     timeoutMs: number
     maxTimeoutMs: number
+}
+
+type CreateHookLogFieldsParams = {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    status: HookLogStatus
+    failurePolicy: HookFailurePolicy
+    timeoutMs?: number
+    durationMs?: number
+    errorName?: string
+}
+
+type HookTimeoutErrorParams = {
+    registration: RegisteredPieceInvocationMiddleware
+    hookName: HookName
+    timeoutMs: number
 }
 
 type WithTimeoutParams<TResult> = {

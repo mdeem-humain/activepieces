@@ -20,6 +20,7 @@ function getRegisteredPieceInvocationMiddleware(): RegisteredPieceInvocationMidd
     return registeredPlugins.flatMap((registeredPlugin) => {
         return (registeredPlugin.plugin.pieceInvocationMiddleware ?? []).map((middleware) => ({
             pluginName: registeredPlugin.plugin.name,
+            packageName: registeredPlugin.metadata.packageName,
             pluginHookFailurePolicy: registeredPlugin.plugin.hookFailurePolicy,
             middleware,
         }))
@@ -124,6 +125,7 @@ type RegisteredEnginePlugin = {
 
 type RegisteredPieceInvocationMiddleware = {
     pluginName: EnginePlugin['name']
+    packageName?: string
     pluginHookFailurePolicy?: EnginePlugin['hookFailurePolicy']
     middleware: PieceInvocationMiddleware
 }

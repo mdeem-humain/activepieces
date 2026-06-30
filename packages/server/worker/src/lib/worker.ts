@@ -1,6 +1,6 @@
 import { createServer } from 'http'
 import os from 'os'
-import { ActivepiecesError, isNil, spreadIfDefined, tryCatch } from '@activepieces/core-utils'
+import { ActivepiecesError, isNil, spreadIfDefined, tryCatch, tryCatchSync } from '@activepieces/core-utils'
 import { createResolver, Runtime } from '@activepieces/sandbox-pool'
 import { apVersionUtil, onCallService, systemUsage, UNKNOWN_VERSION, wideEvent } from '@activepieces/server-utils'
 import { ConsumeJobRequest, createRpcClient, EngineResponseStatus, ExecutionMode, JobData, SandboxInformation, WebsocketServerEvent, WorkerMachineHealthcheckRequest, WorkerProps, WorkerSettingsResponse, WorkerToApiContract } from '@activepieces/shared'
@@ -282,7 +282,7 @@ async function fetchAndStoreSettings(sock: Socket): Promise<void> {
             const workerGroupId = system.get(WorkerSystemProp.WORKER_GROUP_ID)
             if (!isNil(workerGroupId)) {
                 const processSandboxedModes = [ExecutionMode.SANDBOX_PROCESS, ExecutionMode.SANDBOX_CODE_AND_PROCESS]
-                if (!processSandboxedModes.includes(response.EXECUTION_MODE as ExecutionMode)) {
+                if (!isProcessSandboxedExecutionMode({ executionMode: response.EXECUTION_MODE })) {
                     throw new Error(`Worker group "${workerGroupId}" requires AP_EXECUTION_MODE to be one of: ${processSandboxedModes.join(', ')}. Got: ${response.EXECUTION_MODE}`)
                 }
                 const reuseSandbox = system.get(WorkerSystemProp.REUSE_SANDBOX)
@@ -300,17 +300,64 @@ async function fetchAndStoreSettings(sock: Socket): Promise<void> {
 function getWorkerProps(): WorkerProps {
     try {
         const settings = workerSettings.getSettings()
+        const enginePlugins = getConfiguredEnginePluginMetadata({ settings })
         return {
             EXECUTION_MODE: settings.EXECUTION_MODE,
-            WORKER_CONCURRENCY: system.get(WorkerSystemProp.WORKER_CONCURRENCY)!,
+            WORKER_CONCURRENCY: system.get(WorkerSystemProp.WORKER_CONCURRENCY),
             SANDBOX_MEMORY_LIMIT: settings.SANDBOX_MEMORY_LIMIT,
             REUSE_SANDBOX: system.get(WorkerSystemProp.REUSE_SANDBOX) ?? 'false',
             version: AP_VERSION,
+            ...(enginePlugins === undefined ? {} : { enginePlugins }),
         }
     }
     catch {
         return {}
     }
+}
+
+function getConfiguredEnginePluginMetadata({
+    settings,
+}: {
+    settings: WorkerSettingsResponse
+}): WorkerProps['enginePlugins'] {
+    const parseResult = tryCatchSync<unknown, unknown>(() => JSON.parse(settings.ENGINE_PLUGINS ?? DEFAULT_ENGINE_PLUGIN_PACKAGE_CONFIG))
+
+    if (parseResult.error !== null || !Array.isArray(parseResult.data)) {
+        logger.warn({
+            errorName: getErrorName({ error: parseResult.error }),
+        }, 'Failed to build engine plugin metadata from worker settings')
+        return undefined
+    }
+
+    const enginePlugins = parseResult.data
+        .map((packageConfig) => getConfiguredEnginePluginMetadataEntry({ packageConfig }))
+        .filter((metadata) => metadata !== undefined)
+
+    return enginePlugins.length === 0 ? undefined : enginePlugins
+}
+
+function getConfiguredEnginePluginMetadataEntry({
+    packageConfig,
+}: {
+    packageConfig: unknown
+}): ConfiguredEnginePluginMetadata | undefined {
+    if (!isRecord(packageConfig) || packageConfig.enabled === false || typeof packageConfig.packageName !== 'string') {
+        return undefined
+    }
+
+    return {
+        packageName: packageConfig.packageName,
+        version: CONFIGURED_ENGINE_PLUGIN_VERSION_PLACEHOLDER,
+    }
+}
+
+function isProcessSandboxedExecutionMode({
+    executionMode,
+}: {
+    executionMode: string
+}): boolean {
+    return executionMode === ExecutionMode.SANDBOX_PROCESS
+        || executionMode === ExecutionMode.SANDBOX_CODE_AND_PROCESS
 }
 
 async function buildMachineInfo(): Promise<WorkerMachineHealthcheckRequest> {
@@ -354,10 +401,10 @@ function buildErrorMessage(execError: Error | undefined, result: JobResult | und
 
 function extractLogs(execError: Error | undefined, result: JobResult | undefined): string | undefined {
     if (execError instanceof ActivepiecesError) {
-        const params = execError.error.params as Record<string, unknown>
+        const params = execError.error.params
         const parts: string[] = []
-        if (params?.['standardOutput']) parts.push(`stdout:\n${params['standardOutput']}`)
-        if (params?.['standardError']) parts.push(`stderr:\n${params['standardError']}`)
+        if (isRecord(params) && params['standardOutput']) parts.push(`stdout:\n${params['standardOutput']}`)
+        if (isRecord(params) && params['standardError']) parts.push(`stderr:\n${params['standardError']}`)
         return parts.length > 0 ? parts.join('\n') : undefined
     }
     if (result && 'logs' in result) {
@@ -370,6 +417,17 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function getErrorName({
+    error,
+}: {
+    error: unknown
+}): string {
+    return error instanceof Error ? error.name : typeof error
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 function startHealthServer(): ReturnType<typeof createServer> {
     const port = Number(process.env[WorkerSystemProp.PORT] ?? system.get(WorkerSystemProp.PORT))
@@ -396,3 +454,8 @@ type WorkerStartParams = {
     workerToken: string
     withHealthServer?: boolean
 }
+
+type ConfiguredEnginePluginMetadata = NonNullable<WorkerProps['enginePlugins']>[number]
+
+const DEFAULT_ENGINE_PLUGIN_PACKAGE_CONFIG = '[]'
+const CONFIGURED_ENGINE_PLUGIN_VERSION_PLACEHOLDER = 'unknown'

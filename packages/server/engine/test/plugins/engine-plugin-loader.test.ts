@@ -11,6 +11,8 @@ describe('enginePluginLoader', () => {
     let originalApActivepiecesVersion: string | undefined
     let originalApEdition: string | undefined
     let loggedConsoleInput: unknown[][]
+    let warnedConsoleInput: unknown[][]
+    let erroredConsoleInput: unknown[][]
 
     beforeEach(() => {
         originalApEnginePlugins = process.env.AP_ENGINE_PLUGINS
@@ -19,6 +21,8 @@ describe('enginePluginLoader', () => {
         originalApActivepiecesVersion = process.env.AP_ACTIVEPIECES_VERSION
         originalApEdition = process.env.AP_EDITION
         loggedConsoleInput = []
+        warnedConsoleInput = []
+        erroredConsoleInput = []
 
         enginePlugins.clear()
         process.env.AP_ENVIRONMENT = 'development'
@@ -31,8 +35,18 @@ describe('enginePluginLoader', () => {
                 input,
             ]
         })
-        vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-        vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        vi.spyOn(console, 'warn').mockImplementation((...input: unknown[]) => {
+            warnedConsoleInput = [
+                ...warnedConsoleInput,
+                input,
+            ]
+        })
+        vi.spyOn(console, 'error').mockImplementation((...input: unknown[]) => {
+            erroredConsoleInput = [
+                ...erroredConsoleInput,
+                input,
+            ]
+        })
     })
 
     afterEach(() => {
@@ -89,16 +103,27 @@ describe('enginePluginLoader', () => {
     })
 
     it('skips config rows where enabled is false', async () => {
+        const disabledPackageName = fixturePackagePath('import-throw')
         await loadWithPackageConfigs({
             packageConfigs: [
                 {
-                    packageName: fixturePackagePath('import-throw'),
+                    packageName: disabledPackageName,
                     enabled: false,
                 },
             ],
         })
 
         expect(enginePlugins.getRegisteredPlugins()).toEqual([])
+        expect(findConsoleFields({
+            calls: warnedConsoleInput,
+            message: 'Engine plugin package skipped',
+        })).toMatchObject({
+            packageName: disabledPackageName,
+            apiVersion: '2026-07-01',
+            status: 'skipped',
+            failurePolicy: 'fail-startup',
+            reason: 'disabled',
+        })
     })
 
     it('loads CommonJS and ESM fixture plugins', async () => {
@@ -133,6 +158,63 @@ describe('enginePluginLoader', () => {
             'cjs-named-engine-plugins-second-middleware',
             'esm-default-middleware',
         ])
+    })
+
+    it('logs structured compatibility and successful load metadata without config values', async () => {
+        const packageName = fixturePackagePath('factory-config')
+        await loadWithPackageConfigs({
+            packageConfigs: [
+                {
+                    packageName,
+                    config: {
+                        pluginName: 'structured-loader-plugin',
+                        secret: 'loader-secret-value',
+                    },
+                },
+            ],
+        })
+
+        expect(findConsoleFields({
+            calls: loggedConsoleInput,
+            message: 'Engine plugin compatibility report',
+        })).toMatchObject({
+            apiVersion: '2026-07-01',
+            status: 'reported',
+            configuredPackageCount: 1,
+            enabledPackageCount: 1,
+            packages: [
+                {
+                    packageName,
+                    status: 'configured',
+                    failurePolicy: 'fail-startup',
+                },
+            ],
+        })
+        expect(findConsoleFields({
+            calls: loggedConsoleInput,
+            message: 'Engine plugin package load started',
+        })).toMatchObject({
+            packageName,
+            apiVersion: '2026-07-01',
+            status: 'started',
+            failurePolicy: 'fail-startup',
+        })
+        expect(findConsoleFields({
+            calls: loggedConsoleInput,
+            message: 'Engine plugin loaded',
+        })).toMatchObject({
+            packageName,
+            pluginName: 'structured-loader-plugin',
+            version: '1.0.0',
+            apiVersion: '2026-07-01',
+            status: 'loaded',
+            failurePolicy: 'fail-startup',
+        })
+        expect(JSON.stringify([
+            loggedConsoleInput,
+            warnedConsoleInput,
+            erroredConsoleInput,
+        ])).not.toContain('loader-secret-value')
     })
 
     it('selects the exact exportName when provided', async () => {
@@ -243,10 +325,11 @@ describe('enginePluginLoader', () => {
     })
 
     it('continues after a failed package when failurePolicy is skip-plugin', async () => {
+        const failedPackageName = fixturePackagePath('import-throw')
         await loadWithPackageConfigs({
             packageConfigs: [
                 {
-                    packageName: fixturePackagePath('import-throw'),
+                    packageName: failedPackageName,
                     failurePolicy: 'skip-plugin',
                 },
                 {
@@ -258,13 +341,34 @@ describe('enginePluginLoader', () => {
         expect(enginePlugins.getRegisteredPlugins().map((plugin) => plugin.name)).toEqual([
             'cjs-default-plugin',
         ])
+        expect(findConsoleFields({
+            calls: warnedConsoleInput,
+            message: 'Engine plugin package load failed',
+        })).toMatchObject({
+            packageName: failedPackageName,
+            apiVersion: '2026-07-01',
+            status: 'failed',
+            failurePolicy: 'skip-plugin',
+            errorName: 'Error',
+        })
+        expect(findConsoleFields({
+            calls: warnedConsoleInput,
+            message: 'Engine plugin package skipped',
+        })).toMatchObject({
+            packageName: failedPackageName,
+            apiVersion: '2026-07-01',
+            status: 'skipped',
+            failurePolicy: 'skip-plugin',
+            reason: 'load-failed',
+        })
     })
 
     it('fails startup by default when a package cannot be loaded', async () => {
+        const failedPackageName = fixturePackagePath('import-throw')
         await loadWithPackageConfigs({
             packageConfigs: [
                 {
-                    packageName: fixturePackagePath('import-throw'),
+                    packageName: failedPackageName,
                 },
             ],
             expectFailure: true,
@@ -272,6 +376,16 @@ describe('enginePluginLoader', () => {
         })
 
         expect(enginePlugins.getRegisteredPlugins()).toEqual([])
+        expect(findConsoleFields({
+            calls: erroredConsoleInput,
+            message: 'Engine plugin package load failed',
+        })).toMatchObject({
+            packageName: failedPackageName,
+            apiVersion: '2026-07-01',
+            status: 'failed',
+            failurePolicy: 'fail-startup',
+            errorName: 'Error',
+        })
     })
 
     it('runs onLoad after successful registration', async () => {
@@ -347,6 +461,16 @@ function restoreEnvValue({
         return
     }
     process.env[name] = value
+}
+
+function findConsoleFields({
+    calls,
+    message,
+}: {
+    calls: unknown[][]
+    message: string
+}): unknown {
+    return calls.find((input) => input[1] === message)?.[0]
 }
 
 type EnginePluginPackageConfigInput = {
