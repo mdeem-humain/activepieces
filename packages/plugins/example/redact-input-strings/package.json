@@ -1,0 +1,20 @@
+{
+  "name": "@activepieces/engine-plugin-redact-input-strings",
+  "version": "0.1.0",
+  "description": "Example engine plugin that redacts configured string patterns from piece input props.",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "activepieces": {
+    "kind": "engine-plugin",
+    "apiVersion": "2026-07-01"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "24.11.0",
+    "typescript": "5.5.4"
+  }
+}

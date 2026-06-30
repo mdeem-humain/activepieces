@@ -1,9 +1,11 @@
+import path from 'node:path'
 import { tryParseFriendlyPieceError } from '@activepieces/core-utils'
 import { ExecutionType, FlowAction, FlowRunStatus, RunEnvironment } from '@activepieces/shared'
 import { afterEach } from 'vitest'
 import { FlowExecutorContext } from '../../src/lib/handler/context/flow-execution-context'
 import { flowExecutor } from '../../src/lib/handler/flow-executor'
 import { pieceExecutor } from '../../src/lib/handler/piece-executor'
+import { enginePluginLoader } from '../../src/lib/plugins'
 import { enginePlugins } from '../../src/lib/plugins/engine-plugins'
 import { buildPieceAction, generateMockEngineConstants } from './test-helper'
 
@@ -291,6 +293,149 @@ describe('pieceExecutor', () => {
         expect(result.steps.data_mapper.output).toEqual({ key: 42 })
     })
 
+    it('loads an external engine plugin package that redacts data mapper input strings', async () => {
+        const originalInput = {
+            mapping: {
+                ssn: '123-45-6789',
+                nested: {
+                    message: 'Customer SSN is 123-45-6789',
+                },
+                items: [
+                    'first 123-45-6789',
+                    'safe text',
+                ],
+                label: 'safe text',
+                count: 7,
+                enabled: true,
+                empty: null,
+            },
+        }
+
+        const result = await withExternalEnginePlugin({
+            config: {
+                rules: [
+                    {
+                        name: 'ssn',
+                        pattern: '\\b\\d{3}-\\d{2}-\\d{4}\\b',
+                    },
+                ],
+            },
+            run: () => pieceExecutor.handle({
+                action: buildPieceAction({
+                    name: 'data_mapper',
+                    pieceName: '@activepieces/piece-data-mapper',
+                    actionName: 'advanced_mapping',
+                    input: originalInput,
+                }),
+                executionState: FlowExecutorContext.empty(),
+                constants: generateMockEngineConstants(),
+            }),
+        })
+
+        expect(result.verdict).toStrictEqual({
+            status: FlowRunStatus.RUNNING,
+        })
+        expect(result.steps.data_mapper.output).toEqual({
+            ssn: 'REDACTED',
+            nested: {
+                message: 'Customer SSN is REDACTED',
+            },
+            items: [
+                'first REDACTED',
+                'safe text',
+            ],
+            label: 'safe text',
+            count: 7,
+            enabled: true,
+            empty: null,
+        })
+        expect(originalInput).toEqual({
+            mapping: {
+                ssn: '123-45-6789',
+                nested: {
+                    message: 'Customer SSN is 123-45-6789',
+                },
+                items: [
+                    'first 123-45-6789',
+                    'safe text',
+                ],
+                label: 'safe text',
+                count: 7,
+                enabled: true,
+                empty: null,
+            },
+        })
+    })
+
+    it('fails plugin load for malformed external redaction regexp config', async () => {
+        await expect(withExternalEnginePlugin({
+            config: {
+                rules: [
+                    {
+                        name: 'broken',
+                        pattern: '(',
+                    },
+                ],
+            },
+            run: () => Promise.resolve(FlowExecutorContext.empty()),
+        })).rejects.toThrow()
+    })
+
+    it('does not redact when configured pieceNames do not match the piece', async () => {
+        const result = await withExternalEnginePlugin({
+            config: {
+                pieceNames: ['@activepieces/piece-ai'],
+                rules: [
+                    {
+                        name: 'ssn',
+                        pattern: '\\b\\d{3}-\\d{2}-\\d{4}\\b',
+                    },
+                ],
+            },
+            run: () => pieceExecutor.handle({
+                action: buildPieceAction({
+                    name: 'data_mapper',
+                    pieceName: '@activepieces/piece-data-mapper',
+                    actionName: 'advanced_mapping',
+                    input: {
+                        mapping: {
+                            ssn: '123-45-6789',
+                        },
+                    },
+                }),
+                executionState: FlowExecutorContext.empty(),
+                constants: generateMockEngineConstants(),
+            }),
+        })
+
+        expect(result.steps.data_mapper.output).toEqual({
+            ssn: '123-45-6789',
+        })
+    })
+
+    it('keeps current behavior when the external redaction plugin has no config', async () => {
+        const result = await withExternalEnginePlugin({
+            run: () => pieceExecutor.handle({
+                action: buildPieceAction({
+                    name: 'data_mapper',
+                    pieceName: '@activepieces/piece-data-mapper',
+                    actionName: 'advanced_mapping',
+                    input: {
+                        mapping: {
+                            ssn: '123-45-6789',
+                        },
+                    },
+                }),
+                executionState: FlowExecutorContext.empty(),
+                constants: generateMockEngineConstants(),
+            }),
+        })
+
+        expect(result.steps.data_mapper.output).toEqual({
+            ssn: '123-45-6789',
+        })
+    })
+
     it('allows action run middleware to replace the output stored on the step', async () => {
         enginePlugins.register({
             name: 'replace-action-output-plugin',
@@ -448,6 +593,53 @@ function hasPropsValue(input: unknown): input is ActionContextWithPropsValue {
     return typeof input === 'object'
         && input !== null
         && 'propsValue' in input
+}
+
+async function withExternalEnginePlugin<TResult>({
+    config,
+    run,
+}: {
+    config?: unknown
+    run: () => Promise<TResult>
+}): Promise<TResult> {
+    const originalApEnginePlugins = process.env.AP_ENGINE_PLUGINS
+    const originalApEnvironment = process.env.AP_ENVIRONMENT
+
+    try {
+        process.env.AP_ENVIRONMENT = 'development'
+        process.env.AP_ENGINE_PLUGINS = JSON.stringify([
+            {
+                packageName: path.resolve(__dirname, '../fixtures/external-engine-plugin'),
+                ...(config === undefined ? {} : { config }),
+            },
+        ])
+        await enginePluginLoader.load()
+        return await run()
+    }
+    finally {
+        restoreEnvValue({
+            name: 'AP_ENGINE_PLUGINS',
+            value: originalApEnginePlugins,
+        })
+        restoreEnvValue({
+            name: 'AP_ENVIRONMENT',
+            value: originalApEnvironment,
+        })
+    }
+}
+
+function restoreEnvValue({
+    name,
+    value,
+}: {
+    name: string
+    value?: string
+}): void {
+    if (value === undefined) {
+        delete process.env[name]
+        return
+    }
+    process.env[name] = value
 }
 
 type ActionContextWithPropsValue = {
