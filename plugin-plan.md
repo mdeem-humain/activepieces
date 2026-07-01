@@ -58,7 +58,7 @@ Do not implement the optional plugin installer, plugin marketplace, database-bac
 - Do not log plugin `config` values. Treat them as secret-bearing.
 - Do not introduce a dependency from `@activepieces/core-execution` to `@activepieces/shared`, server packages, web packages, or piece packages.
 
-## Unit 1: Public Contract In `@activepieces/core-execution`
+## Task 1: Public Contract In `@activepieces/core-execution`
 
 ### Implementation
 
@@ -118,7 +118,7 @@ Add `packages/core/execution/test/automation/engine/plugins.test.ts`:
 - `npx turbo run test --filter=@activepieces/core-execution`
 - `npx turbo run lint --filter=@activepieces/core-execution`
 
-## Unit 2: Adopt Public Types And Harden The Engine Registry
+## Task 2: Adopt Public Types And Harden The Engine Registry
 
 ### Implementation
 
@@ -156,7 +156,7 @@ Extend `packages/server/engine/test/plugins/piece-invocation-middleware.test.ts`
 - `npm run test --workspace=packages/server/engine -- test/plugins`
 - `npx turbo run lint --filter=@activepieces/engine`
 
-## Unit 3: Engine Plugin Loader
+## Task 3: Engine Plugin Loader
 
 ### Implementation
 
@@ -224,7 +224,7 @@ Add `packages/server/engine/test/plugins/engine-plugin-loader.test.ts`:
 - `npm run test --workspace=packages/server/engine -- test/plugins/engine-plugin-loader.test.ts`
 - `npm run test --workspace=packages/server/engine -- test/plugins/piece-invocation-middleware.test.ts`
 
-## Unit 4: Async Engine Startup
+## Task 4: Async Engine Startup
 
 ### Implementation
 
@@ -255,7 +255,7 @@ Prefer factoring a small `startEngine()` function for unit tests:
 - `npm run test --workspace=packages/server/engine -- test/plugins`
 - `npx turbo run build --filter=@activepieces/engine`
 
-## Unit 5: API System Props And Worker Settings
+## Task 5: API System Props And Worker Settings
 
 ### Implementation
 
@@ -311,7 +311,7 @@ Extend core worker schema tests if a suitable test file exists, or add one in `p
 - `npm run test-unit --workspace=packages/server/api -- test/unit/app/helper`
 - `npx turbo run test --filter=@activepieces/core-execution`
 
-## Unit 6: Worker And Sandbox Env Propagation
+## Task 6: Worker And Sandbox Env Propagation
 
 ### Implementation
 
@@ -361,7 +361,7 @@ Extend `packages/server/worker/test/lib/worker-settings-override.test.ts`:
 - `npx turbo run test --filter=@activepieces/sandbox-pool`
 - `npm run test --workspace=packages/server/worker -- test/lib/worker-settings-override.test.ts`
 
-## Unit 7: Middleware Hardening
+## Task 7: Middleware Hardening
 
 ### Implementation
 
@@ -429,7 +429,7 @@ Extend integration-ish engine tests:
 - `npm run test --workspace=packages/server/engine -- test/handler/flow-piece.test.ts`
 - `npm run test --workspace=packages/server/engine -- test/helper/piece-helper-middleware.test.ts test/helper/trigger-helper-middleware.test.ts`
 
-## Unit 8: Example Redaction Plugin And End-To-End Fixture
+## Task 8: Example Redaction Plugin And End-To-End Fixture
 
 ### Implementation
 
@@ -541,7 +541,7 @@ If a full sandbox process test is too expensive, keep the first test at engine l
 - `npm run test --workspace=packages/server/engine -- test/plugins/engine-plugin-loader.test.ts test/handler/flow-piece.test.ts`
 - Build the example plugin and inspect its generated `dist/index.js` to confirm it contains compiled JavaScript and no TypeScript runtime requirement.
 
-## Unit 9: Observability And Worker Health Metadata
+## Task 9: Observability And Worker Health Metadata
 
 ### Implementation
 
@@ -585,7 +585,7 @@ Add true wide events as a separate sub-unit only after the stdout/stderr logs wo
 - `npm run test --workspace=packages/server/worker -- test/lib/worker.test.ts`
 - `npm run test-unit --workspace=packages/server/api -- test/unit/app/workers/machine`
 
-## Unit 10: Documentation And Feature Registry
+## Task 10: Documentation And Feature Registry
 
 ### Implementation
 
@@ -626,7 +626,7 @@ Documentation has no runtime tests. Verify with:
 - `rg -n "Engine Plugin|AP_ENGINE_PLUGINS|PieceInvocationMiddleware" packages/server/engine/README.md .agents/features`
 - `npm run lint-dev`
 
-## Unit 11: Optional Plugin Installer, Deferred
+## Task 11: Optional Plugin Installer, Deferred
 
 Do not implement this in the first cut.
 
