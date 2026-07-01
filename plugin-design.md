@@ -433,7 +433,7 @@ Minimum fields:
 - status
 - failure policy
 
-Worker machine metadata should expose loaded plugin names and versions. Add a field like this to worker props or health output:
+Worker-visible loaded plugin metadata is deferred from the first implementation. The long-lived worker does not currently know the in-process engine registry inside each sandbox, and reporting configured package names would not prove what actually loaded. A later design can add executor-to-worker reporting for metadata shaped like:
 
 ```ts
 enginePlugins: {
@@ -443,7 +443,7 @@ enginePlugins: {
 }[]
 ```
 
-This is useful for support and rolling deploy debugging.
+This would be useful for support and rolling deploy debugging once it can reflect actual engine-loaded descriptors.
 
 ## Security Model
 
@@ -569,7 +569,6 @@ API:
 Worker:
 
 - `packages/server/worker/src/lib/runtime/sandbox-config.ts`
-- `packages/server/worker/src/lib/worker.ts` if plugin health is added to worker props
 
 Sandbox pool:
 
@@ -615,8 +614,7 @@ Docs:
 
 1. Add load and hook logs.
 2. Add wide events around hook duration/status.
-3. Add loaded plugin metadata to worker health.
-4. Document operational troubleshooting.
+3. Document operational troubleshooting.
 
 ### Phase 5: Optional Plugin Installer
 
@@ -681,7 +679,7 @@ This would let the engine render consistent user-facing errors and audit events.
 
 ### Plugin Health Endpoint
 
-Expose loaded plugin metadata and health through worker machine status so operators can confirm a rollout:
+Future work can expose loaded plugin metadata and health through worker machine status so operators can confirm a rollout:
 
 - plugin name
 - plugin version

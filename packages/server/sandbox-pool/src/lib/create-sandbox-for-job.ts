@@ -6,8 +6,8 @@ import { sandboxCapacity } from './sandbox/capacity'
 import { simpleProcess } from './sandbox/fork'
 import { isolateProcess } from './sandbox/isolate'
 import { createSandbox } from './sandbox/sandbox'
-import type { Sandbox, SandboxMount, SandboxProcessMaker } from './sandbox/types'
-import type { SandboxPoolSettings } from './types'
+import { Sandbox, SandboxMount } from './sandbox/types'
+import { SandboxPoolSettings } from './types'
 
 export function createSandboxForJob(params: {
     log: ApLogger
@@ -22,12 +22,7 @@ export function createSandboxForJob(params: {
     const paths = cacheUtils(basePath)
 
     const memoryLimitMb = parseMemoryLimit(settings.SANDBOX_MEMORY_LIMIT)
-    const processMaker = getProcessMaker({
-        executionMode: settings.EXECUTION_MODE,
-        log,
-        boxId,
-        paths,
-    })
+    const processMaker = getProcessMaker(settings.EXECUTION_MODE, log, boxId, paths)
 
     const baseMounts: SandboxMount[] = [
         { hostPath: paths.getGlobalCacheCommonPath(), sandboxPath: '/root/common' },
@@ -55,12 +50,7 @@ export function isIsolateMode(mode: string): boolean {
     return mode === ExecutionMode.SANDBOX_PROCESS || mode === ExecutionMode.SANDBOX_CODE_AND_PROCESS
 }
 
-function getProcessMaker({ executionMode, log, boxId, paths }: {
-    executionMode: string
-    log: ApLogger
-    boxId: number
-    paths: ReturnType<typeof cacheUtils>
-}): SandboxProcessMaker {
+function getProcessMaker(executionMode: string, log: ApLogger, boxId: number, paths: ReturnType<typeof cacheUtils>) {
     switch (executionMode) {
         case ExecutionMode.SANDBOX_PROCESS:
         case ExecutionMode.SANDBOX_CODE_AND_PROCESS:

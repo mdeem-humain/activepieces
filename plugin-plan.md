@@ -39,7 +39,7 @@ Implement Phases 1 through 4 from `plugin-design.md` with static package install
 - engine startup loader,
 - API to worker to sandbox configuration propagation,
 - middleware hardening for external packages,
-- operator-facing logs and worker health metadata.
+- operator-facing loader and middleware logs.
 
 Do not implement the optional plugin installer, plugin marketplace, database-backed configuration, UI, per-project installation, or piece metadata integration in the first cut.
 
@@ -139,7 +139,7 @@ Add a read method for observability:
 
 - `getRegisteredPlugins(): EnginePluginMetadata[]`
 
-where metadata includes `name`, `version`, `apiVersion`, and package name when known. Do not expose full plugin descriptors through worker health.
+where metadata includes `name`, `version`, `apiVersion`, and package name when known. Do not expose full plugin descriptors through observability surfaces.
 
 ### Tests
 
@@ -243,12 +243,7 @@ Keep no-config behavior identical: if `AP_ENGINE_PLUGINS` is unset or `[]`, the 
 
 ### Tests
 
-Prefer factoring a small `startEngine()` function for unit tests:
-
-- loader runs before `workerSocket.init`,
-- no `SANDBOX_ID` does not initialize loader or socket,
-- loader startup failure exits with the selected code,
-- uncaught/rejection handlers still send errors through `workerSocket.sendError` after socket initialization.
+Keep startup coverage in loader and no-config engine tests rather than exporting a test-only startup API from the production entrypoint.
 
 ### Local Verification
 
@@ -541,7 +536,7 @@ If a full sandbox process test is too expensive, keep the first test at engine l
 - `npm run test --workspace=packages/server/engine -- test/plugins/engine-plugin-loader.test.ts test/handler/flow-piece.test.ts`
 - Build the example plugin and inspect its generated `dist/index.js` to confirm it contains compiled JavaScript and no TypeScript runtime requirement.
 
-## Task 9: Observability And Worker Health Metadata
+## Task 9: Observability Logs
 
 ### Implementation
 
@@ -561,28 +556,18 @@ Start with the engine's existing stdout/stderr path:
 
 Use structured JSON objects passed to `console.info`, `console.warn`, or `console.error`. Avoid logging plugin config.
 
-Add loaded plugin metadata to worker-visible machine information:
-
-- `packages/core/execution/src/lib/workers/index.ts`
-  - add `enginePlugins` metadata to `WorkerProps` or `SandboxInformation`, depending on which is easiest to populate without RPC churn.
-- `packages/server/worker/src/lib/worker.ts`
-  - include loaded plugin metadata if it is available from sandbox executors.
-
-Important constraint: the long-lived worker does not currently know the in-process engine registry inside a sandbox. For the first cut, the easiest supportable option is to expose configured plugin package names and versions from worker settings, and later enhance runtime executors to report actual loaded metadata from engine startup.
-
 Add true wide events as a separate sub-unit only after the stdout/stderr logs work. Engine does not currently initialize the API/worker evlog logger, so wide events require an explicit bridge or worker-side parsing/enrichment.
+
+Loaded plugin metadata in worker-visible machine information is deferred. The long-lived worker does not currently know the in-process engine registry inside a sandbox, and exposing configured package names through `WorkerProps` would add a public schema change without proving what actually loaded.
 
 ### Tests
 
 - loader logs include package name, plugin name, version, api version, status, and failure policy,
-- logs never include raw `config`,
-- worker props include configured plugin metadata or an explicitly documented placeholder,
-- no-config worker props remain backward-compatible.
+- logs never include raw `config`.
 
 ### Local Verification
 
 - `npm run test --workspace=packages/server/engine -- test/plugins/engine-plugin-loader.test.ts`
-- `npm run test --workspace=packages/server/worker -- test/lib/worker.test.ts`
 - `npm run test-unit --workspace=packages/server/api -- test/unit/app/workers/machine`
 
 ## Task 10: Documentation And Feature Registry
@@ -608,7 +593,7 @@ Update docs after the implementation units are complete:
 - `.agents/features/flow-runs.md`
   - update execution behavior around hook failures/timeouts.
 - `.agents/features/workers.md`
-  - update `WorkerSettingsResponse`, sandbox env propagation, and worker metadata.
+  - update `WorkerSettingsResponse` and sandbox env propagation.
 - Optional new `.agents/features/engine-plugins.md`
   - use this if the feature is broad enough to stand apart from pieces.
 - `.agents/features/GLOSSARY.md`
@@ -652,7 +637,7 @@ This unit would need its own sandbox-pool tests and probably a security review b
 6. Unit 6: sandbox env propagation.
 7. Unit 7: middleware hardening.
 8. Unit 8: example redaction plugin and end-to-end fixture.
-9. Unit 9: observability and health metadata.
+9. Unit 9: observability logs.
 10. Unit 10: docs and feature registry.
 
 This order keeps each change independently testable and avoids pushing config into the sandbox before the engine can load it.
@@ -704,7 +689,7 @@ If API startup validation changes are broad, also run:
 2. Should `log-and-continue` ship in the first implementation, or should hook failures always fail invocation until observability plugins prove the need?
 3. Should plugin config support secret values directly, or should config only reference separate environment variables read by the plugin package?
 4. Should Cloud ever support operator-provided plugins, or only internally deployed plugins?
-5. Should worker health show configured plugin packages first, then actual loaded plugin descriptors later, or should the first implementation wait until actual engine-loaded metadata can be reported?
+5. Should a later implementation report actual engine-loaded plugin descriptors through worker machine status, and if so how should sandbox executors surface that metadata to the worker?
 
 ## Definition Of Done
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NetworkMode, WorkerProps, WorkerSettingsResponse } from '../../../src/lib/workers'
+import { NetworkMode, WorkerSettingsResponse } from '../../../src/lib/workers'
 
 describe('WorkerSettingsResponse', () => {
     it('accepts engine plugin settings', () => {
@@ -15,25 +15,6 @@ describe('WorkerSettingsResponse', () => {
             ...createWorkerSettingsResponse(),
             ENGINE_PLUGINS: [],
         })).toThrow()
-    })
-
-    it('accepts optional configured engine plugin worker metadata', () => {
-        const parsed = WorkerProps.parse({
-            enginePlugins: [
-                {
-                    packageName: '@acme/engine-plugin',
-                    version: 'unknown',
-                },
-            ],
-        })
-
-        expect(parsed.enginePlugins).toEqual([
-            {
-                packageName: '@acme/engine-plugin',
-                version: 'unknown',
-            },
-        ])
-        expect(WorkerProps.parse({}).enginePlugins).toBeUndefined()
     })
 })
 

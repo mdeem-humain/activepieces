@@ -15,7 +15,6 @@ import type {
     WorkerToApiContract,
     ExecuteExtractPieceMetadataJobData,
     ConsumeJobRequest,
-    WorkerMachineHealthcheckRequest,
     WorkerSettingsResponse,
 } from '@activepieces/shared'
 
@@ -155,15 +154,10 @@ describe('worker integration', () => {
         })
     })
 
-    async function connectWorkerWithPoll(
-        pollResponses: (ConsumeJobRequest | null)[],
-        settingsOverrides: Partial<WorkerSettingsResponse> = {},
-    ): Promise<{
+    async function connectWorkerWithPoll(pollResponses: (ConsumeJobRequest | null)[]): Promise<{
         completeJobCalls: CompleteJobCall[]
-        pollRequests: WorkerMachineHealthcheckRequest[]
     }> {
         const completeJobCalls: CompleteJobCall[] = []
-        const pollRequests: WorkerMachineHealthcheckRequest[] = []
         let pollIndex = 0
 
         return new Promise((resolve) => {
@@ -172,17 +166,16 @@ describe('worker integration', () => {
                 serverSocket.on(WebsocketServerEvent.FETCH_WORKER_SETTINGS, (...args: unknown[]) => {
                     const callback = args[args.length - 1]
                     if (typeof callback === 'function') {
-                        callback(buildWorkerSettingsResponse(settingsOverrides))
+                        callback(buildWorkerSettingsResponse())
                     }
                 })
 
                 const handlers: WorkerToApiContract = {
-                    poll: vi.fn(async (request) => {
-                        pollRequests.push(request)
+                    poll: vi.fn(async () => {
                         const response = pollIndex < pollResponses.length ? pollResponses[pollIndex] : null
                         pollIndex++
                         if (pollIndex >= pollResponses.length) {
-                            setTimeout(() => resolve({ completeJobCalls, pollRequests }), 200)
+                            setTimeout(() => resolve({ completeJobCalls }), 200)
                         }
                         return response
                     }),
@@ -344,39 +337,6 @@ describe('worker integration', () => {
         expect(completeJobCalls[0].status).toBe(EngineResponseStatus.TIMEOUT)
     }, 15_000)
 
-    it('reports configured engine plugin metadata in worker props', async () => {
-        const enginePlugins = JSON.stringify([
-            {
-                packageName: '@acme/engine-plugin-redaction',
-                config: {
-                    secret: 'plugin-secret-value',
-                },
-            },
-            {
-                packageName: '@acme/disabled-engine-plugin',
-                enabled: false,
-            },
-        ])
-
-        const { pollRequests } = await connectWorkerWithPoll([null], {
-            ENGINE_PLUGINS: enginePlugins,
-        })
-
-        expect(pollRequests[0].workerProps.enginePlugins).toEqual([
-            {
-                packageName: '@acme/engine-plugin-redaction',
-                version: 'unknown',
-            },
-        ])
-        expect(JSON.stringify(pollRequests[0].workerProps)).not.toContain('plugin-secret-value')
-    }, 15_000)
-
-    it('omits engine plugin metadata from worker props when no plugins are configured', async () => {
-        const { pollRequests } = await connectWorkerWithPoll([null])
-
-        expect(pollRequests[0].workerProps.enginePlugins).toBeUndefined()
-    }, 15_000)
-
     describe('resilience to invalid job data', () => {
         it('survives a job with invalid jobData fields and continues processing', async () => {
             const expectedResult = { kind: JobResultKind.FIRE_AND_FORGET, status: EngineResponseStatus.OK }
@@ -530,20 +490,12 @@ describe('worker integration', () => {
             ])
 
             expect(completeJobCalls.length).toBe(3)
-            expect(completeJobCalls).toEqual(expect.arrayContaining([
-                expect.objectContaining({
-                    jobId: 'valid-1',
-                    status: EngineResponseStatus.OK,
-                }),
-                expect.objectContaining({
-                    jobId: 'bad-1',
-                    status: EngineResponseStatus.INTERNAL_ERROR,
-                }),
-                expect.objectContaining({
-                    jobId: 'valid-2',
-                    status: EngineResponseStatus.OK,
-                }),
-            ]))
+            expect(completeJobCalls[0].jobId).toBe('valid-1')
+            expect(completeJobCalls[0].status).toBe(EngineResponseStatus.OK)
+            expect(completeJobCalls[1].jobId).toBe('bad-1')
+            expect(completeJobCalls[1].status).toBe(EngineResponseStatus.INTERNAL_ERROR)
+            expect(completeJobCalls[2].jobId).toBe('valid-2')
+            expect(completeJobCalls[2].status).toBe(EngineResponseStatus.OK)
             expect(mockGetHandler).toHaveBeenCalledTimes(2)
         }, 15_000)
     })
