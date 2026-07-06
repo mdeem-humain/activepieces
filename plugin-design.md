@@ -234,7 +234,7 @@ In isolate mode, those env vars must pass the existing environment key/value val
 
 ```ts
 ssrfGuard.install()
-await enginePluginLoader.loadFromEnvironment()
+await enginePluginLoader.load()
 workerSocket.init(SANDBOX_ID)
 ```
 
@@ -578,7 +578,6 @@ Sandbox pool:
 
 Docs:
 
-- `packages/server/engine/README.md`
 - `.agents/features/pieces.md`
 - `.agents/features/workers.md`
 - Optional new `.agents/features/engine-plugins.md` if plugins become broader than piece invocation middleware.
@@ -589,7 +588,7 @@ Docs:
 
 1. Move plugin types to `@activepieces/core-execution`.
 2. Update engine imports to use the public types.
-3. Implement `enginePluginLoader.loadFromEnvironment()`.
+3. Implement `enginePluginLoader.load()`.
 4. Make `main.ts` async and load plugins before socket initialization.
 5. Add loader unit tests with CJS and ESM fixture packages.
 6. Add duplicate plugin/middleware name validation.

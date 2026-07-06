@@ -8,18 +8,15 @@ import {
     WorkerJobType,
     EngineResponseStatus,
     WebsocketServerEvent,
-    NetworkMode,
 } from '@activepieces/shared'
 import { JobResultKind } from '../../src/lib/execute/types'
 import type {
     WorkerToApiContract,
     ExecuteExtractPieceMetadataJobData,
     ConsumeJobRequest,
-    WorkerSettingsResponse,
 } from '@activepieces/shared'
 
 const mockGetHandler = vi.fn()
-const mockWorkerSettingsStore = vi.hoisted((): { value?: Record<string, unknown> } => ({}))
 
 vi.mock('../../src/lib/execute/job-registry', () => ({
     getHandler: (...args: unknown[]) => mockGetHandler(...args),
@@ -30,23 +27,11 @@ vi.mock('../../src/lib/execute/job-registry', () => ({
 vi.mock('../../src/lib/config/worker-settings', async () => {
     const { apVersionUtil } = await vi.importActual<typeof import('@activepieces/server-utils')>('@activepieces/server-utils')
     const appVersion = apVersionUtil.getCurrentRelease()
-    const defaultSettings = {
-        PUBLIC_URL: 'http://localhost:3000',
-        APP_VERSION: appVersion,
-        ENGINE_PLUGINS: '[]',
-        ENVIRONMENT: 'test',
-    }
-    mockWorkerSettingsStore.value = defaultSettings
     return {
         workerSettings: {
-            set: vi.fn((response: Record<string, unknown>) => {
-                mockWorkerSettingsStore.value = {
-                    ...response,
-                    APP_VERSION: response.APP_VERSION ?? appVersion,
-                }
-            }),
-            waitForSettings: vi.fn().mockImplementation(() => Promise.resolve(mockWorkerSettingsStore.value ?? defaultSettings)),
-            getSettings: vi.fn().mockImplementation(() => mockWorkerSettingsStore.value ?? defaultSettings),
+            set: vi.fn(),
+            waitForSettings: vi.fn().mockResolvedValue({ PUBLIC_URL: 'http://localhost:3000', APP_VERSION: appVersion }),
+            getSettings: vi.fn().mockReturnValue({ PUBLIC_URL: 'http://localhost:3000', APP_VERSION: appVersion }),
         },
     }
 })
@@ -98,36 +83,6 @@ function buildConsumeJobRequest(overrides?: Partial<ConsumeJobRequest>): Consume
     }
 }
 
-function buildWorkerSettingsResponse(overrides?: Partial<WorkerSettingsResponse>): WorkerSettingsResponse {
-    return {
-        PUBLIC_URL: 'http://localhost:3000',
-        ENVIRONMENT: 'test',
-        EXECUTION_MODE: 'SANDBOX_CODE_AND_PROCESS',
-        TRIGGER_TIMEOUT_SECONDS: 60,
-        TRIGGER_HOOKS_TIMEOUT_SECONDS: 60,
-        PAUSED_FLOW_TIMEOUT_DAYS: 30,
-        FLOW_TIMEOUT_SECONDS: 600,
-        LOG_LEVEL: 'info',
-        LOG_PRETTY: 'false',
-        APP_WEBHOOK_SECRETS: '{}',
-        ENGINE_PLUGINS: '[]',
-        ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 5000,
-        ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 30000,
-        MAX_FLOW_RUN_LOG_SIZE_MB: 10,
-        MAX_FILE_SIZE_MB: 10,
-        SANDBOX_MEMORY_LIMIT: '1024',
-        SANDBOX_PROPAGATED_ENV_VARS: [],
-        DEV_PIECES: [],
-        FILE_STORAGE_LOCATION: '/tmp',
-        S3_USE_SIGNED_URLS: 'false',
-        EVENT_DESTINATION_TIMEOUT_SECONDS: 30,
-        EDITION: 'community',
-        NETWORK_MODE: NetworkMode.UNRESTRICTED,
-        SSRF_ALLOW_LIST: [],
-        ...overrides,
-    }
-}
-
 describe('worker integration', () => {
     let httpServer: ReturnType<typeof createServer>
     let ioServer: IOServer
@@ -166,7 +121,28 @@ describe('worker integration', () => {
                 serverSocket.on(WebsocketServerEvent.FETCH_WORKER_SETTINGS, (...args: unknown[]) => {
                     const callback = args[args.length - 1]
                     if (typeof callback === 'function') {
-                        callback(buildWorkerSettingsResponse())
+                        callback({
+                            PUBLIC_URL: 'http://localhost:3000',
+                            ENVIRONMENT: 'test',
+                            EXECUTION_MODE: 'SANDBOX_CODE_AND_PROCESS',
+                            TRIGGER_TIMEOUT_SECONDS: 60,
+                            TRIGGER_HOOKS_TIMEOUT_SECONDS: 60,
+                            PAUSED_FLOW_TIMEOUT_DAYS: 30,
+                            FLOW_TIMEOUT_SECONDS: 600,
+                            LOG_LEVEL: 'info',
+                            LOG_PRETTY: 'false',
+                            APP_WEBHOOK_SECRETS: '{}',
+                            MAX_FLOW_RUN_LOG_SIZE_MB: 10,
+                            MAX_FILE_SIZE_MB: 10,
+                            SANDBOX_MEMORY_LIMIT: '1024',
+                            SANDBOX_PROPAGATED_ENV_VARS: [],
+                            DEV_PIECES: [],
+                            OTEL_ENABLED: false,
+                            FILE_STORAGE_LOCATION: '/tmp',
+                            S3_USE_SIGNED_URLS: 'false',
+                            EVENT_DESTINATION_TIMEOUT_SECONDS: 30,
+                            EDITION: 'community',
+                        })
                     }
                 })
 

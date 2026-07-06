@@ -8,7 +8,6 @@ Engine Plugins are operator-installed Node packages loaded by the engine at star
 - `packages/server/engine/src/lib/plugins/engine-plugin-loader.ts` — parses `AP_ENGINE_PLUGINS`, imports package exports, validates descriptors, and applies package load failure policy
 - `packages/server/engine/src/lib/plugins/engine-plugins.ts` — process-local plugin registry and plugin metadata
 - `packages/server/engine/src/lib/plugins/piece-invocation-middleware.ts` — piece callback hook runner, matching, hook failure policy, and timeout handling
-- `packages/server/engine/README.md` — operator-facing package contract and configuration documentation
 - `packages/plugins/example/redact-input-strings/` — example Engine Plugin package
 - `packages/core/execution/src/lib/workers/index.ts` — `WorkerSettingsResponse` contract re-exported through `@activepieces/shared`
 - `packages/server/api/src/app/workers/machine/machine-service.ts` — sends engine plugin settings to connected workers

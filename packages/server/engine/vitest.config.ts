@@ -29,8 +29,6 @@ export default defineConfig({
       '@activepieces/pieces-common': path.resolve(__dirname, '../../../packages/pieces/common/src/index.ts'),
       '@activepieces/core-formula': path.resolve(__dirname, '../../../packages/core/formula/src/index.ts'),
       '@activepieces/core-execution': path.resolve(__dirname, '../../../packages/core/execution/src/index.ts'),
-      '@activepieces/core-piece-types': path.resolve(__dirname, '../../../packages/core/piece-types/src/index.ts'),
-      '@activepieces/core-utils': path.resolve(__dirname, '../../../packages/core/utils/src/index.ts'),
     },
   },
 })

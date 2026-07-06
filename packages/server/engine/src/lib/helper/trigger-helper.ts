@@ -73,7 +73,7 @@ export const triggerHelper = {
             }),
         }
         await runWithPieceInvocationMiddleware({
-            context: createPieceInvocationContext({
+            context: {
                 pieceName,
                 pieceVersion,
                 phase: 'trigger.onStart',
@@ -86,7 +86,7 @@ export const triggerHelper = {
                 actionOrTriggerName: triggerName,
                 runEnvironment: constants.runEnvironment,
                 executionType: getPieceInvocationExecutionType({ constants }),
-            }),
+            },
             input: context,
             invoke: async (input) => {
                 if (!isOnStartContext(input)) {
@@ -402,7 +402,7 @@ function createPieceInvocationContextFromExecuteTrigger({
     triggerName,
     phase,
 }: CreatePieceInvocationContextFromExecuteTriggerParams): PieceInvocationContext {
-    return createPieceInvocationContext({
+    return {
         pieceName,
         pieceVersion,
         phase,
@@ -415,11 +415,7 @@ function createPieceInvocationContextFromExecuteTrigger({
         actionOrTriggerName: triggerName,
         runEnvironment: constants.runEnvironment,
         executionType: getPieceInvocationExecutionType({ constants }),
-    })
-}
-
-function createPieceInvocationContext(params: PieceInvocationContext): PieceInvocationContext {
-    return params
+    }
 }
 
 function getPieceInvocationExecutionType({

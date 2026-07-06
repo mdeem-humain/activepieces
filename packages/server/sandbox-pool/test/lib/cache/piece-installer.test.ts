@@ -82,7 +82,6 @@ const fakeGetSettings = () => ({
     ENGINE_PLUGINS: '[]',
     ENGINE_PLUGIN_HOOK_TIMEOUT_MS: 5000,
     ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: 30000,
-    APP_VERSION: '0.1.0',
     EDITION: 'community',
     REUSE_SANDBOX: undefined,
     FLOW_TIMEOUT_SECONDS: 600,

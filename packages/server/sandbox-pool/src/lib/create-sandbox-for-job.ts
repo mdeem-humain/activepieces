@@ -28,6 +28,8 @@ export function createSandboxForJob(params: {
         { hostPath: paths.getGlobalCacheCommonPath(), sandboxPath: '/root/common' },
     ]
 
+    const executionMode = settings.EXECUTION_MODE as ExecutionMode
+
     return createSandbox(
         log,
         sandboxId,
@@ -40,13 +42,13 @@ export function createSandboxForJob(params: {
             maxHttpBufferSizeBytes: maxSocketHttpBufferSizeBytes(settings.MAX_FILE_SIZE_MB),
             basePath,
             baseMounts,
-            wsRpcPort: isIsolateMode(settings.EXECUTION_MODE) ? sandboxCapacity.wsRpcPortForBox(boxId) : undefined,
+            wsRpcPort: isIsolateMode(executionMode) ? sandboxCapacity.wsRpcPortForBox(boxId) : undefined,
         },
         processMaker,
     )
 }
 
-export function isIsolateMode(mode: string): boolean {
+export function isIsolateMode(mode: ExecutionMode): boolean {
     return mode === ExecutionMode.SANDBOX_PROCESS || mode === ExecutionMode.SANDBOX_CODE_AND_PROCESS
 }
 
@@ -77,9 +79,9 @@ function buildSandboxEnv({ settings }: {
     const networkMode = settings.NETWORK_MODE
     return {
         ...baseEnv({ settings, networkMode }),
-        ...enginePluginEnv(settings),
         ...ssrfEnv(settings),
         ...propagatedEnv(settings),
+        ...enginePluginEnv(settings),
     }
 }
 
@@ -91,8 +93,6 @@ function baseEnv({ settings, networkMode }: { settings: SandboxPoolSettings, net
         AP_MAX_FILE_SIZE_MB: String(settings.MAX_FILE_SIZE_MB),
         NODE_PATH: '/usr/src/node_modules',
         AP_NETWORK_MODE: networkMode,
-        AP_ENVIRONMENT: settings.ENVIRONMENT,
-        AP_EDITION: settings.EDITION,
     }
 }
 
@@ -101,6 +101,8 @@ function enginePluginEnv(settings: SandboxPoolSettings): Record<string, string> 
         AP_ENGINE_PLUGINS: settings.ENGINE_PLUGINS,
         AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS: String(settings.ENGINE_PLUGIN_HOOK_TIMEOUT_MS),
         AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS: String(settings.ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS),
+        AP_ENVIRONMENT: settings.ENVIRONMENT,
+        AP_EDITION: settings.EDITION,
         ...(settings.APP_VERSION === undefined ? {} : { AP_ACTIVEPIECES_VERSION: settings.APP_VERSION }),
     }
 }
@@ -119,9 +121,6 @@ function ssrfEnv(settings: SandboxPoolSettings): Record<string, string> {
 function propagatedEnv(settings: SandboxPoolSettings): Record<string, string> {
     const env: Record<string, string> = {}
     for (const key of settings.SANDBOX_PROPAGATED_ENV_VARS) {
-        if (TYPED_SANDBOX_ENV_KEYS.has(key)) {
-            continue
-        }
         const value = process.env[key]
         if (value) {
             env[key] = value
@@ -129,12 +128,3 @@ function propagatedEnv(settings: SandboxPoolSettings): Record<string, string> {
     }
     return env
 }
-
-const TYPED_SANDBOX_ENV_KEYS = new Set([
-    'AP_ENGINE_PLUGINS',
-    'AP_ENGINE_PLUGIN_HOOK_TIMEOUT_MS',
-    'AP_ENGINE_PLUGIN_HOOK_MAX_TIMEOUT_MS',
-    'AP_ENVIRONMENT',
-    'AP_ACTIVEPIECES_VERSION',
-    'AP_EDITION',
-])

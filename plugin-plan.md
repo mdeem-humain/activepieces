@@ -233,7 +233,7 @@ Refactor `packages/server/engine/src/main.ts` into an async startup path:
 1. register `uncaughtException` and `unhandledRejection` handlers early,
 2. install `ssrfGuard`,
 3. set `process.title`,
-4. if `SANDBOX_ID` exists, call `await enginePluginLoader.loadFromEnvironment()`,
+4. if `SANDBOX_ID` exists, call `await enginePluginLoader.load()`,
 5. initialize `workerSocket`,
 6. initialize `flowRunProgressReporter`.
 
@@ -500,14 +500,7 @@ Implementation details for the example plugin:
 - guard traversal depth and total visited nodes to prevent pathological inputs from hanging execution,
 - use the public `PieceInvocationContext` to ensure redaction only runs for configured piece names and replaceable phases.
 
-Keep a smaller compiled fixture package for loader tests if importing the example package would make tests slower or require an extra build step.
-
-Possible fixture path:
-
-- `packages/server/engine/test/fixtures/external-engine-plugin/package.json`
-- `packages/server/engine/test/fixtures/external-engine-plugin/dist/index.js`
-
-The fixture or example package used by tests should export a factory that:
+The loader fixture packages should export factories or descriptors that:
 
 - declares the current `ENGINE_PLUGIN_API_VERSION`,
 - registers middleware matching `@activepieces/piece-data-mapper` or `@activepieces/piece-ai`,
@@ -576,13 +569,6 @@ Loaded plugin metadata in worker-visible machine information is deferred. The lo
 
 Update docs after the implementation units are complete:
 
-- `packages/server/engine/README.md`
-  - describe external Engine Plugins,
-  - show package contract,
-  - show `AP_ENGINE_PLUGINS`,
-  - link to the input-redaction example plugin,
-  - document failure and timeout policies,
-  - document static-install requirement.
 - `packages/plugins/example/redact-input-strings/README.md`
   - explain config-driven regexp redaction,
   - show the SSN-to-`REDACTED` AI-piece example,
@@ -608,7 +594,7 @@ Update docs after the implementation units are complete:
 
 Documentation has no runtime tests. Verify with:
 
-- `rg -n "Engine Plugin|AP_ENGINE_PLUGINS|PieceInvocationMiddleware" packages/server/engine/README.md .agents/features`
+- `rg -n "Engine Plugin|AP_ENGINE_PLUGINS|PieceInvocationMiddleware" .agents/features packages/plugins/example/redact-input-strings/README.md`
 - `npm run lint-dev`
 
 ## Task 11: Optional Plugin Installer, Deferred

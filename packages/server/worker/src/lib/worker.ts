@@ -281,8 +281,8 @@ async function fetchAndStoreSettings(sock: Socket): Promise<void> {
             }
             const workerGroupId = system.get(WorkerSystemProp.WORKER_GROUP_ID)
             if (!isNil(workerGroupId)) {
-                const processSandboxedModes: string[] = [ExecutionMode.SANDBOX_PROCESS, ExecutionMode.SANDBOX_CODE_AND_PROCESS]
-                if (!processSandboxedModes.includes(response.EXECUTION_MODE)) {
+                const processSandboxedModes = [ExecutionMode.SANDBOX_PROCESS, ExecutionMode.SANDBOX_CODE_AND_PROCESS]
+                if (!processSandboxedModes.includes(response.EXECUTION_MODE as ExecutionMode)) {
                     throw new Error(`Worker group "${workerGroupId}" requires AP_EXECUTION_MODE to be one of: ${processSandboxedModes.join(', ')}. Got: ${response.EXECUTION_MODE}`)
                 }
                 const reuseSandbox = system.get(WorkerSystemProp.REUSE_SANDBOX)
@@ -302,7 +302,7 @@ function getWorkerProps(): WorkerProps {
         const settings = workerSettings.getSettings()
         return {
             EXECUTION_MODE: settings.EXECUTION_MODE,
-            WORKER_CONCURRENCY: system.get(WorkerSystemProp.WORKER_CONCURRENCY),
+            WORKER_CONCURRENCY: system.get(WorkerSystemProp.WORKER_CONCURRENCY)!,
             SANDBOX_MEMORY_LIMIT: settings.SANDBOX_MEMORY_LIMIT,
             REUSE_SANDBOX: system.get(WorkerSystemProp.REUSE_SANDBOX) ?? 'false',
             version: AP_VERSION,
@@ -354,10 +354,10 @@ function buildErrorMessage(execError: Error | undefined, result: JobResult | und
 
 function extractLogs(execError: Error | undefined, result: JobResult | undefined): string | undefined {
     if (execError instanceof ActivepiecesError) {
-        const params = execError.error.params
+        const params = execError.error.params as Record<string, unknown>
         const parts: string[] = []
-        if (isRecord(params) && params['standardOutput']) parts.push(`stdout:\n${params['standardOutput']}`)
-        if (isRecord(params) && params['standardError']) parts.push(`stderr:\n${params['standardError']}`)
+        if (params?.['standardOutput']) parts.push(`stdout:\n${params['standardOutput']}`)
+        if (params?.['standardError']) parts.push(`stderr:\n${params['standardError']}`)
         return parts.length > 0 ? parts.join('\n') : undefined
     }
     if (result && 'logs' in result) {
@@ -370,9 +370,6 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 function startHealthServer(): ReturnType<typeof createServer> {
     const port = Number(process.env[WorkerSystemProp.PORT] ?? system.get(WorkerSystemProp.PORT))
